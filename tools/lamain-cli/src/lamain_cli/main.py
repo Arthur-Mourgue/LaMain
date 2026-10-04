@@ -40,16 +40,15 @@ from lamain_core.diagnostics import plot as diag_plot
 from lamain_core.diagnostics import sweep_joint
 from lamain_core.diagnostics import write_csv as diag_write_csv
 from lamain_core.model import default_model_path, load_hand_model
+from lamain_core import paths
 from lamain_cli.keys import KeyReader
 from lamain_cli.studio import Studio
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_CALIB_DIR = REPO_ROOT / "calibration"
-DEFAULT_LOGS_DIR = REPO_ROOT / "logs"
-DEFAULT_DEMOS_DIR = REPO_ROOT / "demos"
-DEFAULT_GESTURE_DIR = DEFAULT_DEMOS_DIR / "gestures"
-DEFAULT_EPISODE_DIR = DEFAULT_DEMOS_DIR / "episodes"
-DEFAULT_SERIAL = "LM-0001"
+REPO_ROOT = paths.repo_root()
+DEFAULT_LOGS_DIR = paths.logs_dir()
+DEFAULT_GESTURE_DIR = paths.gesture_dir()
+DEFAULT_EPISODE_DIR = paths.episode_dir()
+DEFAULT_SERIAL = paths.DEFAULT_SERIAL
 
 
 def _bus(args, model):
@@ -329,7 +328,7 @@ def cmd_calibrate(args) -> int:
                 print(f"  ecart max de reference = {worst} ticks (seuil 2)")
 
         out = _next_calibration_path(
-            args.calib_dir or DEFAULT_CALIB_DIR, serial, args.tag
+            args.calib_dir or paths.calibration_dir(serial), serial, args.tag
         )
         out.write_text(json.dumps(hand.to_dict(), indent=2), encoding="utf-8")
         print(f"\nCalibration ecrite : {out}")
@@ -399,16 +398,13 @@ def cmd_collect(args) -> int:
 # --------------------------------------------------------------------------- #
 # Studio / demo
 # --------------------------------------------------------------------------- #
-def _latest_calibration(calib_dir) -> Path | None:
-    d = Path(calib_dir)
-    files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return files[0] if files else None
-
-
 def _resolve_calibration(args) -> Path | None:
     if getattr(args, "calibration", None):
         return Path(args.calibration)
-    return _latest_calibration(args.calib_dir or DEFAULT_CALIB_DIR)
+    if getattr(args, "calib_dir", None):
+        return paths.latest_in_dir(args.calib_dir)
+    serial = getattr(args, "serial", None) or DEFAULT_SERIAL
+    return paths.latest_calibration(serial)
 
 
 def cmd_studio(args) -> int:

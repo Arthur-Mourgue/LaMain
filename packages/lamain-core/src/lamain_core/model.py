@@ -10,6 +10,8 @@ from pathlib import Path
 
 import yaml
 
+from . import paths
+
 REFERENCE_STRATEGIES = {"dead_center_midpoint", "hard_stop_min", "hard_stop_max"}
 JOINT_TYPES = {"two_stop", "crank"}
 REFERENCE_SIDES = {"auto", "stop_low", "stop_high", "mount"}
@@ -201,14 +203,9 @@ def load_hand_model(path: str | Path) -> HandModel:
     )
 
 
-DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[4] / "config" / "hand_model.yaml"
+DEFAULT_MODEL_PATH = paths.hand_model_path()
 
 
 def default_model_path() -> Path:
-    """Chemin par defaut, surchargeable par la variable LAMAIN_MODEL."""
-    import os
-
-    env = os.environ.get("LAMAIN_MODEL")
-    if env:
-        return Path(env)
-    return DEFAULT_MODEL_PATH
+    """Default path, overridable with the LAMAIN_MODEL environment variable."""
+    return paths.hand_model_path()

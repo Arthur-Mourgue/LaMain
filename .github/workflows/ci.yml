@@ -13,5 +13,5 @@ jobs:
         uses: astral-sh/setup-uv@v5
       - name: Sync workspace
         run: uv sync
-      - name: Run tests (FakeBus, sans materiel)
+      - name: Run tests (FakeBus, no hardware)
         run: uv run pytest

@@ -286,7 +286,7 @@ wheels = [
 [[package]]
 name = "lamain-cli"
 version = "0.1.0"
-source = { editable = "tools/setup-servo" }
+source = { editable = "tools/lamain-cli" }
 dependencies = [
     { name = "lamain-core" },
     { name = "matplotlib" },
@@ -334,7 +334,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "lamain-cli", editable = "tools/setup-servo" },
+    { name = "lamain-cli", editable = "tools/lamain-cli" },
     { name = "lamain-core", editable = "packages/lamain-core" },
 ]
 
