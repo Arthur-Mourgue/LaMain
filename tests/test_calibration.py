@@ -1,0 +1,106 @@
+import pytest
+
+from lamain_core.bus import FakeBus, FakeServo
+from lamain_core.calibration import CalibrationAbort, calibrate_hand
+from lamain_core.model import default_model_path, load_hand_model
+
+
+def make_model():
+    return load_hand_model(default_model_path())
+
+
+def test_model_loads_all_joints():
+    m = make_model()
+    assert len(m.joints) == 5
+    assert m.calibration_order == (
+        "index_flex",
+        "middle_flex",
+        "index_middle_abd",
+        "thumb_rot",
+        "thumb_flex",
+    )
+    assert m.joint("index_flex").is_crank
+    assert m.joint("index_middle_abd").joint_type == "two_stop"
+    assert m.joint("thumb_rot").joint_type == "two_stop"
+
+
+def test_calibrate_end_to_end_on_fakebus():
+    m = make_model()
+    bus = FakeBus.standard_hand(m)
+    hand = calibrate_hand(bus, m, "TEST", logs_dir=None)
+    assert hand.valid, {n: c.cause for n, c in hand.joints.items()}
+    # manivelles : point mort = milieu de course = position de montage
+    for name in ("index_flex", "middle_flex", "thumb_flex"):
+        c = hand.joints[name]
+        assert c.joint_type == "crank"
+        assert abs(c.dead_center_ticks - m.joint(name).assembly_position) <= 3
+    # toutes les plages de travail restent dans les butees mesurees
+    for c in hand.joints.values():
+        assert c.stop_low_ticks <= c.min_ticks <= c.max_ticks <= c.stop_high_ticks
+        assert c.reference_ticks >= c.stop_low_ticks
+        assert c.reference_ticks <= c.stop_high_ticks
+    # deux zeros stockes, distincts de la reference pour les two_stop
+    for c in hand.joints.values():
+        assert c.mount_ticks > 0
+
+
+def test_reference_is_middle_and_both_ways():
+    m = make_model()
+    bus = FakeBus.standard_hand(m)
+    hand = calibrate_hand(bus, m, "TEST")
+    for name, c in hand.joints.items():
+        # reference sits between the two stops -> both directions available
+        assert c.stop_low_ticks <= c.min_ticks <= c.reference_ticks
+        assert c.reference_ticks <= c.max_ticks <= c.stop_high_ticks
+        assert c.min_ticks < c.reference_ticks < c.max_ticks
+
+
+def test_calibration_is_repeatable():
+    m = make_model()
+    bus = FakeBus.standard_hand(m)
+    a = calibrate_hand(bus, m, "TEST")
+    b = calibrate_hand(bus, m, "TEST")
+    for name in a.joints:
+        assert abs(a.joints[name].reference_ticks - b.joints[name].reference_ticks) <= 2
+
+
+def test_blocked_joint_is_reported_failed():
+    m = make_model()
+    from lamain_core import units
+
+    servos = []
+    for name in m.calibration_order:
+        j = m.joint(name)
+        if j.servo_id == 1:
+            servos.append(FakeServo(1, stop_min=511, stop_max=511, position=511, goal=511))
+        else:
+            half = units.deg_to_ticks(j.nominal_travel_deg / 2)
+            servos.append(
+                FakeServo(
+                    j.servo_id,
+                    stop_min=max(0, j.assembly_position - half),
+                    stop_max=min(1023, j.assembly_position + half),
+                    position=j.assembly_position,
+                    goal=j.assembly_position,
+                )
+            )
+    bus = FakeBus(servos)
+    hand = calibrate_hand(bus, m, "TEST")
+    assert not hand.valid
+    assert hand.joints["index_flex"].status == "failed"
+
+
+def test_no_mechanical_stop_is_flagged():
+    # servo libre sur toute la course : les deux butees tombent sur la fin
+    # interne du servo -> calibration marquee en echec.
+    m = make_model()
+    servos = [
+        FakeServo(1, stop_min=0, stop_max=1023, position=511, goal=511, speed_ticks=40)
+    ]
+    bus = FakeBus(servos)
+    from lamain_core.calibration import CalibrationLog, calibrate_joint
+
+    log = CalibrationLog()
+    cal = calibrate_joint(bus, m.joint("index_flex"), m, log)
+    assert cal.status == "failed"
+    assert cal.low_at_servo_end and cal.high_at_servo_end

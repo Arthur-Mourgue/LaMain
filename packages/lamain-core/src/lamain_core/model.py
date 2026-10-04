@@ -1,0 +1,214 @@
+"""Lecture de `config/hand_model.yaml` : la description de la conception.
+
+Tout parametre (couples, pas, seuils, marges, ordre) vient de ce fichier.
+Aucune valeur "magique" ne doit apparaitre ailleurs dans le code.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import yaml
+
+REFERENCE_STRATEGIES = {"dead_center_midpoint", "hard_stop_min", "hard_stop_max"}
+JOINT_TYPES = {"two_stop", "crank"}
+REFERENCE_SIDES = {"auto", "stop_low", "stop_high", "mount"}
+
+
+@dataclass(frozen=True)
+class JointModel:
+    name: str
+    servo_id: int
+    assembly_position: int
+    reference: str
+    branch: str
+    range_tolerance_deg: float
+    nominal_travel_deg: float
+    max_speed_dps: float
+    joint_type: str = "two_stop"
+    reference_side: str = "auto"
+
+    def __post_init__(self) -> None:
+        if self.reference not in REFERENCE_STRATEGIES:
+            raise ValueError(
+                f"{self.name}: reference inconnue {self.reference!r} "
+                f"(attendu : {sorted(REFERENCE_STRATEGIES)})"
+            )
+        if self.branch not in ("positive", "negative"):
+            raise ValueError(f"{self.name}: branch doit etre positive|negative")
+        if self.joint_type not in JOINT_TYPES:
+            raise ValueError(f"{self.name}: type doit etre {sorted(JOINT_TYPES)}")
+        if self.reference_side not in REFERENCE_SIDES:
+            raise ValueError(
+                f"{self.name}: reference_side doit etre {sorted(REFERENCE_SIDES)}"
+            )
+
+    @property
+    def is_crank(self) -> bool:
+        return self.joint_type == "crank"
+
+    @property
+    def branch_sign(self) -> int:
+        return 1 if self.branch == "positive" else -1
+
+
+@dataclass(frozen=True)
+class BusConfig:
+    port: str = "/dev/ttyACM0"
+    baudrate: int = 1_000_000
+    servo_model: str = "SCS0009"
+
+
+@dataclass(frozen=True)
+class CalibrationConfig:
+    step_ticks: int = 1
+    fast_step_ticks: int = 8
+    stable_reads: int = 10
+    stable_epsilon_ticks: int = 1
+    overrun_ticks: int = 20
+    load_threshold: int = 0
+    torque_pct: float = 25.0
+    probe_torque_pct: float = 70.0
+    probe_max_s: float = 0.3
+    backoff_deg: float = 7.0
+    repeat: int = 2
+    settle_s: float = 0.05
+    servo_end_margin_ticks: int = 40
+    repeat_tolerance_ticks: int = 2
+    reference_mode: str = "middle"   # "middle" (milieu des butees) | "mount" (zero palonnier)
+    joint_timeout_s: float = 60.0    # max time per joint before aborting
+    progress_every: int = 30         # print a progress line every N reads
+
+
+@dataclass(frozen=True)
+class Preconditions:
+    min_voltage: float = 4.8
+    max_voltage: float = 7.4
+    warn_temperature: int = 50
+    abort_temperature: int = 55
+
+
+@dataclass(frozen=True)
+class SafetyConfig:
+    home_margin_deg: float = 5.0
+    free_torque_pct: float = 20.0
+    default_torque_pct: float = 40.0
+    grasp_torque_pct: float = 80.0
+    watchdog_timeout_s: float = 1.0
+    max_step_deg_per_cycle: float = 10.0
+    move_speed: float = 3.0
+
+
+@dataclass(frozen=True)
+class HandModel:
+    model_version: str
+    bus: BusConfig
+    calibration_order: tuple[str, ...]
+    calibration: CalibrationConfig
+    preconditions: Preconditions
+    safety: SafetyConfig
+    joints: dict[str, JointModel] = field(default_factory=dict)
+
+    def joint(self, name: str) -> JointModel:
+        try:
+            return self.joints[name]
+        except KeyError:
+            raise KeyError(f"articulation inconnue : {name!r}") from None
+
+    def joint_by_servo_id(self, servo_id: int) -> JointModel:
+        for j in self.joints.values():
+            if j.servo_id == servo_id:
+                return j
+        raise KeyError(f"aucun joint pour le servo {servo_id}")
+
+
+def _joint_from_dict(name: str, raw: dict) -> JointModel:
+    return JointModel(
+        name=name,
+        servo_id=int(raw["servo_id"]),
+        assembly_position=int(raw.get("assembly_position", 511)),
+        reference=raw.get("reference", "hard_stop_min"),
+        branch=raw.get("branch", "positive"),
+        range_tolerance_deg=float(raw.get("range_tolerance_deg", 10.0)),
+        nominal_travel_deg=float(raw.get("nominal_travel_deg", 0.0)),
+        max_speed_dps=float(raw.get("max_speed_dps", 120.0)),
+        joint_type=raw.get("type", "two_stop"),
+        reference_side=raw.get("reference_side", "auto"),
+    )
+
+
+def load_hand_model(path: str | Path) -> HandModel:
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+
+    bus_raw = data.get("bus", {})
+    cal = data.get("calibration", {})
+    pre = data.get("preconditions", {})
+    saf = data.get("safety", {})
+    joints_raw = data.get("joints", {})
+    if not joints_raw:
+        raise ValueError("hand_model.yaml : aucune articulation definie")
+
+    joints = {name: _joint_from_dict(name, raw) for name, raw in joints_raw.items()}
+
+    order = tuple(data.get("calibration_order") or joints.keys())
+    for name in order:
+        if name not in joints:
+            raise ValueError(f"calibration_order : joint inconnu {name!r}")
+
+    return HandModel(
+        model_version=str(data.get("model_version", "unknown")),
+        bus=BusConfig(
+            port=str(bus_raw.get("port", "/dev/ttyACM0")),
+            baudrate=int(bus_raw.get("baudrate", 1_000_000)),
+            servo_model=str(bus_raw.get("servo_model", "SCS0009")),
+        ),
+        calibration_order=order,
+        calibration=CalibrationConfig(
+            step_ticks=int(cal.get("step_ticks", 1)),
+            fast_step_ticks=int(cal.get("fast_step_ticks", cal.get("fast_travel_ticks", 8))),
+            stable_reads=int(cal.get("stable_reads", 10)),
+            stable_epsilon_ticks=int(cal.get("stable_epsilon_ticks", 1)),
+            overrun_ticks=int(cal.get("overrun_ticks", 20)),
+            load_threshold=int(cal.get("load_threshold", 0)),
+            torque_pct=float(cal.get("torque_pct", 25.0)),
+            probe_torque_pct=float(cal.get("probe_torque_pct", 70.0)),
+            probe_max_s=float(cal.get("probe_max_s", 0.3)),
+            backoff_deg=float(cal.get("backoff_deg", 7.0)),
+            repeat=int(cal.get("repeat", 2)),
+            settle_s=float(cal.get("settle_s", 0.05)),
+            servo_end_margin_ticks=int(cal.get("servo_end_margin_ticks", 40)),
+            repeat_tolerance_ticks=int(cal.get("repeat_tolerance_ticks", 2)),
+            reference_mode=str(cal.get("reference_mode", "middle")),
+            joint_timeout_s=float(cal.get("joint_timeout_s", 60.0)),
+            progress_every=int(cal.get("progress_every", 30)),
+        ),
+        preconditions=Preconditions(
+            min_voltage=float(pre.get("min_voltage", 4.8)),
+            max_voltage=float(pre.get("max_voltage", 7.4)),
+            warn_temperature=int(pre.get("warn_temperature", 50)),
+            abort_temperature=int(pre.get("abort_temperature", 55)),
+        ),
+        safety=SafetyConfig(
+            home_margin_deg=float(saf.get("home_margin_deg", 5.0)),
+            free_torque_pct=float(saf.get("free_torque_pct", 20.0)),
+            default_torque_pct=float(saf.get("default_torque_pct", 40.0)),
+            grasp_torque_pct=float(saf.get("grasp_torque_pct", 80.0)),
+            watchdog_timeout_s=float(saf.get("watchdog_timeout_s", 1.0)),
+            max_step_deg_per_cycle=float(saf.get("max_step_deg_per_cycle", 10.0)),
+            move_speed=float(saf.get("move_speed", 3.0)),
+        ),
+        joints=joints,
+    )
+
+
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[4] / "config" / "hand_model.yaml"
+
+
+def default_model_path() -> Path:
+    """Chemin par defaut, surchargeable par la variable LAMAIN_MODEL."""
+    import os
+
+    env = os.environ.get("LAMAIN_MODEL")
+    if env:
+        return Path(env)
+    return DEFAULT_MODEL_PATH

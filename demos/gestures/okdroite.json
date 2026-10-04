@@ -1,0 +1,19 @@
+{
+  "name": "okdroite",
+  "hand": "LM-0001",
+  "model_version": "lamain-v1",
+  "q": {
+    "index_flex": -1.0000000000000002,
+    "middle_flex": -0.08350305498981671,
+    "index_middle_abd": 0.9979550102249489,
+    "thumb_rot": -0.41652892561983473,
+    "thumb_flex": -0.9979550102249489
+  },
+  "rad": {
+    "index_flex": -2.515728492132452,
+    "middle_flex": -0.20964404101103765,
+    "index_middle_abd": 2.495275414960643,
+    "thumb_rot": -1.2885438618239387,
+    "thumb_flex": -2.495275414960643
+  }
+}

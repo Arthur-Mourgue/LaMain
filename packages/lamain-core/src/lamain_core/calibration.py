@@ -1,0 +1,615 @@
+"""F3/F4 : calibration automatique exhaustive.
+
+Sequence (comme l'AmazingHand) :
+  - mise a 0 degres (zero PALONNIER) de tous les servos ;
+  - pause pour emboiter les palonniers (main etendue) ;
+  - pour chaque articulation, un doigt a la fois : balayage PLEINE COURSE dans
+    les deux sens, detection robuste des butees (stagnation + confirmation par
+    couple), calcul du zero articulaire, retour au zero palonnier.
+
+Deux zeros sont stockes par articulation :
+  - mount_ticks     : zero palonnier (pose de montage), utilise pour les resets ;
+  - reference_ticks : zero articulaire (q = 0 de l'API), comme MiddlePos.
+
+Types d'articulation :
+  - ``two_stop`` : butee de chaque cote (abduction, base pouce) -> reference =
+    cote a la plus grande portee (``reference_side: auto``) ;
+  - ``crank``    : manivelle, extension = point mort (pas une butee) -> reference
+    = milieu des deux butees de repli, franchissement interdit.
+"""
+from __future__ import annotations
+
+import csv
+import statistics
+import time
+from collections import deque
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+from . import units
+from .bus import SERVO_MAX_TICK, SERVO_MIN_TICK, ServoBus
+from .model import HandModel, JointModel
+
+
+class CalibrationAbort(RuntimeError):
+    """Arret immediat : couple a couper, rapport d'erreur."""
+
+
+@dataclass
+class SweepSample:
+    t: float
+    servo_id: int
+    goal: int
+    position: int
+    load: int
+    temperature: int
+
+
+@dataclass
+class StopResult:
+    ticks: int
+    at_servo_end: bool
+    repeats: list[int] = field(default_factory=list)
+
+    @property
+    def spread(self) -> int:
+        return (max(self.repeats) - min(self.repeats)) if len(self.repeats) > 1 else 0
+
+
+@dataclass
+class JointCalibration:
+    name: str
+    servo_id: int
+    joint_type: str
+    mount_ticks: int
+    reference_ticks: int
+    direction: int
+    stop_low_ticks: int
+    stop_high_ticks: int
+    min_ticks: int
+    max_ticks: int
+    home_ticks: int
+    dead_center_ticks: int = 0
+    repeatability_ticks: int = 0
+    low_at_servo_end: bool = False
+    high_at_servo_end: bool = False
+    status: str = "ok"
+    cause: str = ""
+    measured_travel_deg: float = 0.0
+    nominal_travel_deg: float = 0.0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class CalibrationLog:
+    rows: list[SweepSample] = field(default_factory=list)
+
+    def add(self, s: SweepSample) -> None:
+        self.rows.append(s)
+
+    def write_csv(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["t", "servo_id", "goal", "position", "load", "temperature"])
+            for s in self.rows:
+                writer.writerow(
+                    [f"{s.t:.4f}", s.servo_id, s.goal, s.position, s.load, s.temperature]
+                )
+
+
+# --------------------------------------------------------------------------- #
+# bas niveau
+# --------------------------------------------------------------------------- #
+def _settle(bus: ServoBus) -> None:
+    bus.step()
+
+
+def _sleep(bus: ServoBus, model: HandModel) -> None:
+    if not bus.simulated:
+        time.sleep(model.calibration.settle_s)
+
+
+def _move_to(bus: ServoBus, model: HandModel, servo_id: int, target: int) -> bool:
+    """Move to `target`; return True if reached (within 1 tick)."""
+    target = max(SERVO_MIN_TICK, min(SERVO_MAX_TICK, target))
+    for _ in range(200):
+        if abs(bus.read_position(servo_id) - target) <= 1:
+            return True
+        bus.write_goal(servo_id, target)
+        _settle(bus)
+        if not bus.simulated:
+            time.sleep(0.02)
+    return False
+
+
+def _read(
+    bus: ServoBus,
+    model: HandModel,
+    servo_id: int,
+    goal: int,
+    log: CalibrationLog,
+) -> tuple[int, int]:
+    _settle(bus)
+    _sleep(bus, model)
+    pos = bus.read_position(servo_id)
+    load = bus.read_load(servo_id)
+    temp = bus.read_temperature(servo_id)
+    log.add(SweepSample(time.monotonic(), servo_id, goal, pos, load, temp))
+    if temp >= model.preconditions.abort_temperature:
+        raise CalibrationAbort(
+            f"servo {servo_id} : surchauffe {temp} C >= "
+            f"{model.preconditions.abort_temperature}"
+        )
+    return pos, load
+
+
+def _scan_torque(model: HandModel, joint: JointModel) -> float:
+    """Torque used while sweeping (same for every joint)."""
+    return model.calibration.torque_pct
+
+
+def _probe_torque(model: HandModel, joint: JointModel) -> float:
+    """Torque used to push/confirm a stop (same for every joint)."""
+    return model.calibration.probe_torque_pct
+
+
+def _confirm_stop(
+    bus: ServoBus,
+    joint: JointModel,
+    model: HandModel,
+    direction: int,
+    pos: int,
+    log: CalibrationLog,
+    trace=None,
+) -> bool:
+    """At a suspected stop, push at max torque for up to `probe_max_s` seconds
+    to really confirm it (dwell), then release torque.
+
+    Retourne True si la position ne bouge pas malgre la poussee (butee reelle).
+    """
+    cfg = model.calibration
+    sid = joint.servo_id
+    scan = _scan_torque(model, joint)
+    probe = _probe_torque(model, joint)
+    target = max(SERVO_MIN_TICK, min(SERVO_MAX_TICK, pos + direction * cfg.overrun_ticks))
+    if trace is not None:
+        trace(f"      contact a {pos} : poussee {probe:.0f}% pendant {cfg.probe_max_s:.1f}s...")
+    bus.set_torque_limit_pct(sid, probe)
+    moved = 0
+    try:
+        deadline = time.monotonic() + cfg.probe_max_s
+        steps = 0
+        while time.monotonic() < deadline:
+            bus.write_goal(sid, target)
+            p, _ = _read(bus, model, sid, target, log)
+            moved = abs(p - pos)
+            if moved > cfg.stable_epsilon_ticks:
+                break
+            steps += 1
+            if bus.simulated and steps >= 3:
+                break
+    finally:
+        bus.set_torque_limit_pct(sid, scan)
+    if trace is not None:
+        trace("      -> butee confirmee" if moved <= cfg.stable_epsilon_ticks
+              else "      -> ca bouge (frottement), on continue")
+    return moved <= cfg.stable_epsilon_ticks
+
+
+def _approach(
+    bus: ServoBus,
+    joint: JointModel,
+    model: HandModel,
+    direction: int,
+    step: int,
+    log: CalibrationLog,
+    deadline: float | None = None,
+    trace=None,
+) -> StopResult:
+    """Avance pas a pas dans `direction` jusqu'a une butee confirmee ou la fin
+    interne du servo."""
+    cfg = model.calibration
+    sid = joint.servo_id
+    max_iters = (SERVO_MAX_TICK - SERVO_MIN_TICK) // max(1, step) + 200
+    goal = bus.read_position(sid)
+    stable: deque[int] = deque(maxlen=cfg.stable_reads)
+
+    for i in range(max_iters):
+        if deadline is not None and time.monotonic() > deadline:
+            raise CalibrationAbort(
+                f"servo {sid} : delai depasse ({cfg.joint_timeout_s:.0f}s) en "
+                f"{direction:+d} (articulation bloquee ou bus lent ?)"
+            )
+        if trace is not None and i % max(1, cfg.progress_every) == 0:
+            trace(f"    servo {sid} {direction:+d}: goal={goal} pos={bus.read_position(sid)}")
+
+        goal = max(SERVO_MIN_TICK, min(SERVO_MAX_TICK, goal + direction * step))
+        bus.write_goal(sid, goal)
+        pos, load = _read(bus, model, sid, goal, log)
+        stable.append(pos)
+
+        at_end = (
+            direction < 0 and pos <= SERVO_MIN_TICK + cfg.stable_epsilon_ticks
+        ) or (
+            direction > 0 and pos >= SERVO_MAX_TICK - cfg.stable_epsilon_ticks
+        )
+        goal_limit = (direction < 0 and goal <= SERVO_MIN_TICK) or (
+            direction > 0 and goal >= SERVO_MAX_TICK
+        )
+        overrun = (goal - pos) * direction
+        stable_enough = (
+            len(stable) == cfg.stable_reads
+            and (max(stable) - min(stable)) <= cfg.stable_epsilon_ticks
+        )
+        stalled = stable_enough and (overrun >= cfg.overrun_ticks or goal_limit)
+
+        if at_end:
+            # servo internal end: still push at max torque so the load rises
+            # (same behaviour as a mechanical stop) and is logged.
+            _confirm_stop(bus, joint, model, direction, pos, log, trace)
+            return StopResult(pos, True, [pos])
+        if stalled:
+            if _confirm_stop(bus, joint, model, direction, pos, log, trace):
+                return StopResult(pos, False, [pos])
+            stable.clear()  # frottement : on continue
+
+    raise CalibrationAbort(
+        f"servo {sid} : butee introuvable en {direction:+d} (course depassee)"
+    )
+
+
+def _search_stop(
+    bus: ServoBus,
+    joint: JointModel,
+    model: HandModel,
+    direction: int,
+    log: CalibrationLog,
+    deadline: float | None = None,
+    trace=None,
+) -> StopResult:
+    """Recherche exhaustive d'une butee : passe rapide, recul, re-approche lente
+    repetee, mediane.
+
+    On part de la POSITION COURANTE (pas d'un zero impose) : si le palonnier est
+    monte contre une butee, on la trouve tout de suite et on va chercher l'autre.
+    """
+    cfg = model.calibration
+    sid = joint.servo_id
+
+    approx = _approach(
+        bus, joint, model, direction, cfg.fast_step_ticks, log, deadline, trace
+    )
+
+    backoff = units.deg_to_ticks(cfg.backoff_deg)
+    _move_to(bus, model, sid, approx.ticks - direction * backoff)
+
+    repeats: list[int] = []
+    at_end = approx.at_servo_end
+    for _ in range(max(1, cfg.repeat)):
+        res = _approach(
+            bus, joint, model, direction, cfg.step_ticks, log, deadline, trace
+        )
+        repeats.append(res.ticks)
+        at_end = at_end or res.at_servo_end
+        _move_to(bus, model, sid, res.ticks - direction * backoff)
+
+    return StopResult(int(statistics.median(repeats)), at_end, repeats)
+
+
+# --------------------------------------------------------------------------- #
+# calcul du zero et de la plage
+# --------------------------------------------------------------------------- #
+def _reference_for(
+    joint: JointModel,
+    mount: int,
+    stop_low: int,
+    stop_high: int,
+    low_near_end: bool,
+    high_near_end: bool,
+    reference_mode: str = "middle",
+) -> tuple[int, int]:
+    """Retourne (reference_ticks, direction).
+
+    `reference_mode`:
+      - "middle" : q=0 = milieu des deux butees (deux sens symetriques) ;
+      - "mount"  : q=0 = zero palonnier (assembly_position).
+    """
+    if reference_mode == "mount":
+        reference = mount
+        # if the palonnier zero is outside the reachable travel (e.g. mounted
+        # against a stop), fall back to the middle so q=0 stays reachable.
+        if not (stop_low <= reference <= stop_high):
+            reference = (stop_low + stop_high) // 2
+    else:
+        reference = (stop_low + stop_high) // 2
+    direction = joint.branch_sign if joint.is_crank else 1
+    return reference, direction
+
+
+def _working_range(
+    model: HandModel,
+    joint: JointModel,
+    reference: int,
+    direction: int,
+    stop_low: int,
+    stop_high: int,
+) -> tuple[int, int]:
+    """Full measured travel (both stops), kept inside by `home_margin_deg`."""
+    margin = units.deg_to_ticks(model.safety.home_margin_deg)
+    lo, hi = stop_low + margin, stop_high - margin
+    lo = max(SERVO_MIN_TICK, lo)
+    hi = min(SERVO_MAX_TICK, hi)
+    if lo > hi:
+        lo = hi = reference
+    return lo, hi
+
+
+def _verify(
+    cal: JointCalibration,
+    joint: JointModel,
+    compare_nominal: bool,
+    repeat_tol: int,
+    end_margin: int,
+) -> None:
+    if cal.measured_travel_deg < 20.0:
+        cal.status = "failed"
+        cal.cause = (
+            f"course {cal.measured_travel_deg:.1f} deg quasi nulle : "
+            "articulation bloquee ou butee non atteinte"
+        )
+        return
+    # les deux butees pile aux extremites du servo = pas de butee mecanique
+    if cal.stop_low_ticks <= 2 and cal.stop_high_ticks >= SERVO_MAX_TICK - 2:
+        cal.status = "failed"
+        cal.cause = (
+            "les deux butees sont la limite interne du servo "
+            "(bielle detachee ou aucune butee mecanique)"
+        )
+        return
+    if cal.repeatability_ticks > repeat_tol:
+        cal.status = "uncertain"
+        cal.cause = (
+            f"repetabilite {cal.repeatability_ticks} ticks > {repeat_tol} : "
+            "butee molle / frottement, pas une butee franche"
+        )
+        return
+    # pour les two_stop seulement : butee collee a la fin de course du servo
+    if not joint.is_crank and (cal.low_at_servo_end or cal.high_at_servo_end):
+        side = "basse" if cal.low_at_servo_end else "haute"
+        cal.status = "uncertain"
+        cal.cause = (
+            f"butee {side} a moins de {end_margin} ticks de la fin de course du "
+            "servo : probablement la limite du servo, pas une butee mecanique "
+            "(repositionne le palonnier ou force reference_side: stop_low/stop_high)"
+        )
+        return
+    if not compare_nominal or joint.nominal_travel_deg <= 0:
+        cal.status = "ok"
+        cal.cause = ""
+        return
+    tol = joint.range_tolerance_deg
+    delta = cal.measured_travel_deg - joint.nominal_travel_deg
+    if abs(delta) <= tol:
+        cal.status = "ok"
+        cal.cause = ""
+    elif delta > 0:
+        cal.status = "failed"
+        cal.cause = (
+            f"course {cal.measured_travel_deg:.0f} deg > nominale "
+            f"{joint.nominal_travel_deg:.0f} deg +{tol} : bielle detachee ou "
+            "butee interne servo"
+        )
+    else:
+        cal.status = "failed"
+        cal.cause = (
+            f"course {cal.measured_travel_deg:.0f} deg < nominale "
+            f"{joint.nominal_travel_deg:.0f} deg -{tol} : palonnier decale "
+            "(1 dent=18 deg), collision ou frottement probable"
+        )
+
+
+# --------------------------------------------------------------------------- #
+# preconditions et articulation
+# --------------------------------------------------------------------------- #
+def preflight(bus: ServoBus, model: HandModel) -> list[str]:
+    problems: list[str] = []
+    try:
+        found = bus.scan()
+    except Exception as exc:  # pragma: no cover - materiel
+        return [f"scan du bus impossible : {exc}"]
+
+    expected = {j.servo_id for j in model.joints.values()}
+    missing = sorted(expected - set(found))
+    if missing:
+        problems.append(f"servos manquants : {missing}")
+
+    for sid in sorted(expected & set(found)):
+        volt = bus.read_voltage(sid)
+        if not (model.preconditions.min_voltage <= volt <= model.preconditions.max_voltage):
+            problems.append(
+                f"servo {sid} : tension {volt:.1f} V hors "
+                f"[{model.preconditions.min_voltage}, {model.preconditions.max_voltage}]"
+            )
+        temp = bus.read_temperature(sid)
+        if temp >= model.preconditions.abort_temperature:
+            problems.append(
+                f"servo {sid} : {temp} C >= {model.preconditions.abort_temperature}"
+            )
+    return problems
+
+
+def calibrate_joint(
+    bus: ServoBus,
+    joint: JointModel,
+    model: HandModel,
+    log: CalibrationLog,
+    verify: bool = False,
+    trace=None,
+) -> JointCalibration:
+    cfg = model.calibration
+    sid = joint.servo_id
+    mount = joint.assembly_position
+
+    bus.set_torque_limit_pct(sid, _scan_torque(model, joint))
+    bus.set_goal_speed(sid, model.safety.move_speed)
+    bus.set_torque_enable(sid, True)
+
+    deadline = time.monotonic() + cfg.joint_timeout_s
+    if trace is not None:
+        trace(f"    butee basse (sens -1)...")
+    low = _search_stop(bus, joint, model, -1, log, deadline, trace)
+    if trace is not None:
+        trace(f"    butee haute (sens +1)...")
+    high = _search_stop(bus, joint, model, +1, log, deadline, trace)
+    stop_low, stop_high = sorted((low.ticks, high.ticks))
+    end_margin = cfg.servo_end_margin_ticks
+    low_at_end = stop_low <= SERVO_MIN_TICK + end_margin
+    high_at_end = stop_high >= SERVO_MAX_TICK - end_margin
+
+    reference, direction = _reference_for(
+        joint, mount, stop_low, stop_high, low_at_end, high_at_end,
+        model.calibration.reference_mode,
+    )
+    lo, hi = _working_range(model, joint, reference, direction, stop_low, stop_high)
+    margin = units.deg_to_ticks(model.safety.home_margin_deg)
+    home = reference + direction * margin
+    home = max(stop_low + margin, min(stop_high - margin, home))
+
+    cal = JointCalibration(
+        name=joint.name,
+        servo_id=sid,
+        joint_type=joint.joint_type,
+        mount_ticks=int(mount),
+        reference_ticks=int(reference),
+        direction=int(direction),
+        stop_low_ticks=int(stop_low),
+        stop_high_ticks=int(stop_high),
+        min_ticks=int(lo),
+        max_ticks=int(hi),
+        home_ticks=int(home),
+        dead_center_ticks=int(reference) if joint.is_crank else 0,
+        repeatability_ticks=max(low.spread, high.spread),
+        low_at_servo_end=bool(low_at_end),
+        high_at_servo_end=bool(high_at_end),
+        measured_travel_deg=units.ticks_to_deg(stop_high - stop_low),
+        nominal_travel_deg=joint.nominal_travel_deg,
+    )
+    _verify(
+        cal,
+        joint,
+        compare_nominal=verify,
+        repeat_tol=model.calibration.repeat_tolerance_ticks,
+        end_margin=cfg.servo_end_margin_ticks,
+    )
+    _move_to(bus, model, sid, mount)  # retour au zero PALONNIER
+    return cal
+
+
+# --------------------------------------------------------------------------- #
+# main
+# --------------------------------------------------------------------------- #
+@dataclass
+class HandCalibration:
+    hand_serial: str
+    model_version: str
+    joints: dict[str, JointCalibration]
+    created_at: str = ""
+    software_version: str = "0.1.0"
+    log_path: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "hand_serial": self.hand_serial,
+            "model_version": self.model_version,
+            "created_at": self.created_at,
+            "software_version": self.software_version,
+            "joints": {name: c.to_dict() for name, c in self.joints.items()},
+        }
+
+    @property
+    def valid(self) -> bool:
+        # "uncertain" est un avertissement, pas un blocage ; seul "failed" bloque.
+        return bool(self.joints) and all(
+            c.status != "failed" for c in self.joints.values()
+        )
+
+    @property
+    def warnings(self) -> list[str]:
+        return [name for name, c in self.joints.items() if c.status == "uncertain"]
+
+
+def _prepare_all(bus: ServoBus, model: HandModel) -> dict[str, int]:
+    """Met TOUS les servos a leur zero PALONNIER (assembly_position)."""
+    positions: dict[str, int] = {}
+    for j in model.joints.values():
+        bus.set_torque_limit_pct(j.servo_id, model.calibration.torque_pct)
+        bus.set_goal_speed(j.servo_id, model.safety.move_speed)
+        bus.set_torque_enable(j.servo_id, True)
+        _move_to(bus, model, j.servo_id, j.assembly_position)
+        positions[j.name] = bus.read_position(j.servo_id)
+    return positions
+
+
+def calibrate_hand(
+    bus: ServoBus,
+    model: HandModel,
+    hand_serial: str,
+    logs_dir: Path | None = None,
+    verify: bool = False,
+    step_by_step: bool = True,
+    progress=None,
+    on_reset=None,
+    mount_confirm=None,
+    trace=None,
+) -> HandCalibration:
+    problems = preflight(bus, model)
+    if problems:
+        raise CalibrationAbort("; ".join(problems))
+
+    log = CalibrationLog()
+    results: dict[str, JointCalibration] = {}
+    order = list(model.calibration_order)
+    total = len(order)
+
+    def _reset(label: str) -> None:
+        positions = _prepare_all(bus, model)
+        if on_reset is not None:
+            on_reset(label, positions)
+
+    try:
+        _reset("depart")
+        if mount_confirm is not None:
+            mount_confirm()
+        for idx, name in enumerate(order):
+            joint = model.joint(name)
+            if progress is not None:
+                progress(name, joint.servo_id, idx + 1, total)
+            if step_by_step:
+                _reset(f"avant {name}")
+            results[name] = calibrate_joint(
+                bus, joint, model, log, verify=verify, trace=trace
+            )
+            if step_by_step:
+                _reset(f"apres {name}")
+    finally:
+        for j in model.joints.values():
+            try:
+                bus.set_torque_enable(j.servo_id, False)
+            except Exception:
+                pass
+
+    if logs_dir is not None:
+        log.write_csv(Path(logs_dir) / "sweep.csv")
+
+    from datetime import datetime, timezone
+
+    return HandCalibration(
+        hand_serial=hand_serial,
+        model_version=model.model_version,
+        joints=results,
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        log_path=str(Path(logs_dir) / "sweep.csv") if logs_dir else "",
+    )

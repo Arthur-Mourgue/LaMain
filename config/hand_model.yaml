@@ -1,0 +1,112 @@
+# La Main - description de la conception (identique pour toutes les mains).
+# Ce fichier est versionne avec la CAO. Aucune valeur "magique" ne doit rester
+# dans le code : tout parametre de calibration/vitesse/couple vient d'ici.
+#
+# Unites : positions en ticks (0-1023, 0,293 deg/pas sur 300 deg).
+# Les plages nominales sont des PLACEHOLDERS en attendant les valeurs de la CAO.
+
+model_version: "lamain-v1"
+
+bus:
+  port: /dev/ttyACM0
+  baudrate: 1000000
+  servo_model: SCS0009
+
+# Ordre de calibration : le pouce en dernier, doigts tendus et ecartes,
+# pour eviter une fausse butee par collision.
+calibration_order: [index_flex, middle_flex, index_middle_abd, thumb_rot, thumb_flex]
+
+calibration:
+  step_ticks: 2              # pas d'approche lente (2 pas ~= 0,6 deg)
+  fast_step_ticks: 8         # pas d'approche rapide (localisation)
+  stable_reads: 10           # N lectures stables avant de suspecter une butee
+  stable_epsilon_ticks: 1    # variation max admise "stable"
+  overrun_ticks: 20          # la consigne doit depasser la position d'autant
+  # Confirmation de butee : a l'approche d'une butee on POUSSE au couple max et
+  # on laisse 2 s pour vraiment la sentir, puis on part dans l'autre sens.
+  probe_torque_pct: 100
+  probe_max_s: 2.0
+  torque_pct: 60             # balayage
+  backoff_deg: 7             # recul avant chaque re-approche
+  repeat: 1                  # nombre de mesures lentes (mediane)
+  settle_s: 0.02             # pause entre deux lectures (materiel reel)
+  joint_timeout_s: 60        # temps max par articulation avant abandon
+  progress_every: 30         # affiche une ligne de progression toutes les N lectures
+  servo_end_margin_ticks: 40 # butee a moins de X ticks de 0/1023 = "fin de servo"
+  repeat_tolerance_ticks: 2  # au-dela => butee molle (status "uncertain")
+  # Zero logique q=0 : "middle" = milieu des deux butees (deux sens symetriques)
+  # ou "mount" = zero palonnier (pose de montage). "middle" est plus robuste si
+  # le palonnier est monte pres d'une butee.
+  reference_mode: middle
+
+preconditions:
+  min_voltage: 4.8
+  max_voltage: 7.4
+  warn_temperature: 50
+  abort_temperature: 55
+
+safety:
+  home_margin_deg: 0         # marge en fin de course (0 = aller au max mesure)
+  free_torque_pct: 20
+  default_torque_pct: 40
+  grasp_torque_pct: 80
+  watchdog_timeout_s: 1.0
+  max_step_deg_per_cycle: 10
+  move_speed: 3              # cran de vitesse rustypot (0 = max, 1..6)
+
+joints:
+  # --- Manivelle : extension = point mort (extremum, pas une butee) ---
+  index_flex:
+    servo_id: 1
+    assembly_position: 511          # palonnier "vers le haut" a cette position
+    type: crank
+    reference: dead_center_midpoint # milieu des deux butees de flexion
+    branch: positive                # sens de travail (positive = fermer)
+    nominal_travel_deg: 288         # course mesuree au banc (~20..1004 ticks)
+    range_tolerance_deg: 15
+    max_speed_dps: 120
+
+  middle_flex:
+    servo_id: 2
+    assembly_position: 511
+    type: crank
+    reference: dead_center_midpoint
+    branch: positive
+    nominal_travel_deg: 288         # course mesuree au banc (a confirmer CAO)
+    range_tolerance_deg: 15
+    max_speed_dps: 120
+
+  # --- Abduction index+majeur : doigts colles = butee ---
+  index_middle_abd:
+    servo_id: 3
+    assembly_position: 511
+    type: two_stop
+    reference: hard_stop_min         # doigts colles (a confirmer en CAO)
+    reference_side: auto             # cote a la plus grande portee
+    branch: positive
+    nominal_travel_deg: 210         # mesure au banc (a confirmer CAO)
+    range_tolerance_deg: 15
+    max_speed_dps: 120
+
+  # --- Rotation base du pouce : butee de chaque cote (a confirmer CAO) ---
+  thumb_rot:
+    servo_id: 4
+    assembly_position: 844           # mi-course mesuree (511 est hors plage)
+    type: two_stop
+    reference: hard_stop_min         # butee la plus repetable (a trancher)
+    reference_side: auto             # cote a la plus grande portee
+    branch: positive
+    nominal_travel_deg: 95          # mesure au banc (a confirmer CAO)
+    range_tolerance_deg: 15
+    max_speed_dps: 120
+
+  # --- Flexion pouce : manivelle comme ID 1 ---
+  thumb_flex:
+    servo_id: 5
+    assembly_position: 511
+    type: crank
+    reference: dead_center_midpoint
+    branch: positive
+    nominal_travel_deg: 288         # mesure au banc (a confirmer CAO)
+    range_tolerance_deg: 15
+    max_speed_dps: 120

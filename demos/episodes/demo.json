@@ -1,0 +1,74 @@
+{
+  "name": "demo",
+  "hand": "LM-0001",
+  "model_version": "lamain-v1",
+  "steps": [
+    {
+      "type": "keypoint",
+      "name": null,
+      "hold": null,
+      "q": {
+        "index_flex": 0.48983739837398377,
+        "middle_flex": -0.022448979591836737,
+        "index_middle_abd": 0.0020408163265306124,
+        "thumb_rot": -0.43108504398826974,
+        "thumb_flex": -0.6938775510204083
+      },
+      "rad": {
+        "index_flex": 1.232297899601465,
+        "middle_flex": -0.056245962222473515,
+        "index_middle_abd": 0.0051132692929521375,
+        "thumb_rot": -0.7516505860639642,
+        "thumb_flex": -1.7385115596037268
+      }
+    },
+    {
+      "type": "gesture",
+      "name": "okookaa",
+      "hold": null
+    },
+    {
+      "type": "gesture",
+      "name": "okmaju\u007feur",
+      "hold": null
+    },
+    {
+      "type": "keypoint",
+      "name": null,
+      "hold": null,
+      "q": {
+        "index_flex": 0.020325203252032523,
+        "middle_flex": 0.0836734693877551,
+        "index_middle_abd": -0.020408163265306124,
+        "thumb_rot": 0.5249266862170088,
+        "thumb_flex": 0.12244897959183675
+      },
+      "rad": {
+        "index_flex": 0.05113269292952138,
+        "middle_flex": 0.20964404101103765,
+        "index_middle_abd": -0.05113269292952138,
+        "thumb_rot": 0.9152752034384326,
+        "thumb_flex": 0.30679615757712825
+      }
+    },
+    {
+      "type": "keypoint",
+      "name": null,
+      "hold": null,
+      "q": {
+        "index_flex": 1.0020325203252034,
+        "middle_flex": 0.9979591836734694,
+        "index_middle_abd": -0.020408163265306124,
+        "thumb_rot": 0.5249266862170088,
+        "thumb_flex": 1.0
+      },
+      "rad": {
+        "index_flex": 2.520841761425404,
+        "middle_flex": 2.500388684253595,
+        "index_middle_abd": -0.05113269292952138,
+        "thumb_rot": 0.9152752034384326,
+        "thumb_flex": 2.5055019535465473
+      }
+    }
+  ]
+}

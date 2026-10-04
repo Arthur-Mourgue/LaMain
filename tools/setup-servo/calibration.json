@@ -1,0 +1,12 @@
+{
+  "hand": "custom-5dof",
+  "notes": "1 flexion index; 2 flexion majeur; 3 abduction index+majeur; 4 base pouce; 5 flexion pouce",
+  "reference": "servo fige a middle_pos, palonnier emboite a cette position (convention AmazingHand). Degres.",
+  "servos": {
+    "1": { "role": "flexion_index", "middle_pos": 0 },
+    "2": { "role": "flexion_majeur", "middle_pos": 0 },
+    "3": { "role": "abduction_index_majeur", "middle_pos": 0 },
+    "4": { "role": "base_pouce", "middle_pos": 0 },
+    "5": { "role": "flexion_pouce", "middle_pos": 0 }
+  }
+}
