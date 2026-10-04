@@ -72,6 +72,6 @@ Standardize what the sensor sees; diversify everything else.
 ## Credits
 
 - Arthur Mourgue
-- TODO(arthur): co-designer name
+- Julien Navet (CAD)
 
 Inspired by Pollen Robotics' AmazingHand (reference kept in `vendor/`).

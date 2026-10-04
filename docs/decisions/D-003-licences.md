@@ -7,7 +7,7 @@
 
 - Software: Apache-2.0. **Accepted.**
 - Hardware: CERN-OHL-P-2.0. **Proposed, pending written agreement of the
-  co-designer** (permissive, so kit makers can build on it).
+  co-designer, Julien Navet** (permissive, so kit makers can build on it).
 - Data: CC-BY-4.0. **Proposed.**
 
 ## Alternatives
