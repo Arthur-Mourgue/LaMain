@@ -72,7 +72,7 @@ class Studio:
                 elif choice in ("6", "q", ""):
                     break
                 else:
-                    self.out("Choix inconnu.")
+                    self.out("Unknown choice.")
         finally:
             self.controller.disable_torque()
 

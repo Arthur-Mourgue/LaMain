@@ -100,12 +100,12 @@ def cmd_bus(args) -> int:
         if args.action == "scan":
             found = c.scan()
             if not found:
-                print("Aucun servo. Verifie alim, cable et cavalier.")
+                print("No servo found. Check power, cable and jumper.")
                 return 1
             for sid in sorted(found):
                 volt = _scalar(c.read_register(sid, "present_voltage")) / 10.0
                 temp = _scalar(c.read_register(sid, "present_temperature"))
-                print(f"  ID {sid:>3}  modele {found[sid]:>5}  {volt:.1f} V  {temp} C")
+                print(f"  ID {sid:>3}  model {found[sid]:>5}  {volt:.1f} V  {temp} C")
             return 0
 
         if args.action == "set-id":
@@ -113,19 +113,19 @@ def cmd_bus(args) -> int:
             found = c.scan()
             if len(found) > 1:
                 print(
-                    "Refus : plusieurs servos sur le bus. "
-                    "Branche UN SEUL servo pour changer un ID."
+                    "Refused: several servos on the bus. "
+                    "Connect ONLY one servo to change an ID."
                 )
                 return 1
             if old not in found:
-                print(f"Servo {old} absent du bus.")
+                print(f"Servo {old} not on the bus.")
                 return 1
             c.write_register(old, "lock", 0)
             c.write_id(old, new)
             c.write_register(new, "lock", 1)
             print(f"ID {old} -> {new} OK.")
             for sid in sorted(c.scan()):
-                print(f"  present : {sid}")
+                print(f"  present: {sid}")
             return 0
 
         if args.action == "dump":
@@ -152,16 +152,16 @@ def cmd_assemble(args) -> int:
         expected = {j.servo_id for j in model.joints.values()}
         missing = sorted(expected - found)
         if missing:
-            print(f"IDs manquants : {missing}. Verifie le montage/alim.")
+            print(f"Missing IDs: {missing}. Check assembly/power.")
             return 1
-        print(f"Servos detectes : {sorted(found)}")
+        print(f"Detected servos: {sorted(found)}")
 
-        print("Positions AVANT :")
+        print("Positions BEFORE:")
         for name in model.calibration_order:
             j = model.joint(name)
-            print(f"  ID {j.servo_id} ({name}) : {bus.read_position(j.servo_id)} ticks")
+            print(f"  ID {j.servo_id} ({name}): {bus.read_position(j.servo_id)} ticks")
 
-        print("\nDeplacement vers la pose de montage :")
+        print("\nMoving to the assembly pose:")
         for name in model.calibration_order:
             j = model.joint(name)
             bus.set_torque_limit_pct(j.servo_id, model.safety.default_torque_pct)
@@ -169,13 +169,13 @@ def cmd_assemble(args) -> int:
             bus.set_goal_speed(j.servo_id, model.safety.move_speed)
             bus.write_goal(j.servo_id, j.assembly_position)
             hint = (
-                "palonnier vers le haut (extension complete / point mort)"
+                "horn up (full extension / dead center)"
                 if j.reference.startswith("dead_center")
-                else "doigt dans une position neutre, non bloquee"
+                else "finger in a neutral, unblocked position"
             )
-            print(f"  ID {j.servo_id} ({name}) -> {j.assembly_position} ticks : {hint}")
+            print(f"  ID {j.servo_id} ({name}) -> {j.assembly_position} ticks: {hint}")
 
-        # attendre que les servos atteignent (ou non) la consigne
+        # wait for the servos to reach the target (or not)
         elapsed = 0.0
         reached = {}
         while elapsed < 3.0:
@@ -191,32 +191,32 @@ def cmd_assemble(args) -> int:
                 time.sleep(0.1)
             elapsed += 0.1
 
-        print("\nPositions APRES :")
+        print("\nPositions AFTER:")
         for name in model.calibration_order:
             j = model.joint(name)
             pos = reached.get(j.servo_id, bus.read_position(j.servo_id))
             delta = pos - j.assembly_position
-            flag = "OK" if abs(delta) <= 2 else f"ECART {delta:+d} ticks (bloque ?)"
-            print(f"  ID {j.servo_id} ({name}) : {pos} ticks  [{flag}]")
+            flag = "OK" if abs(delta) <= 2 else f"DELTA {delta:+d} ticks (stuck?)"
+            print(f"  ID {j.servo_id} ({name}): {pos} ticks  [{flag}]")
 
         if not _confirm(
-            "Emboite les palonniers dans cette pose, puis Entree.", args.yes
+            "Fit the servo horns in this pose, then press Enter.", args.yes
         ):
-            print("Abandon.")
+            print("Cancelled.")
             return 1
 
         if args.release:
             for j in model.joints.values():
                 bus.set_torque_enable(j.servo_id, False)
-            print("Couple coupe.")
+            print("Torque off.")
         else:
-            print("Couple maintenu (les palonniers restent en pose). Ctrl-C pour liberer.")
+            print("Torque on (horns stay in place). Ctrl-C to release.")
             while True:
                 time.sleep(0.5)
     except KeyboardInterrupt:
-        print("\nArret, couple coupe.")
+        print("\nStopped, torque off.")
     except Exception as exc:
-        print(f"\nBUS/MATERIEL error: {exc}")
+        print(f"\nBUS/HARDWARE error: {exc}")
     finally:
         for j in model.joints.values():
             try:
@@ -231,12 +231,12 @@ def cmd_assemble(args) -> int:
 # F3/F4 - calibrate
 # --------------------------------------------------------------------------- #
 def _print_hand(hand) -> None:
-    print(f"\nMain {hand.hand_serial} ({hand.model_version}) :")
+    print(f"\nHand {hand.hand_serial} ({hand.model_version}):")
     for name, c in hand.joints.items():
         print(
             f"  {name:16} {c.status:9} mount={c.mount_ticks:4} ref={c.reference_ticks:4} "
             f"stops=[{c.stop_low_ticks},{c.stop_high_ticks}] "
-            f"course={c.measured_travel_deg:5.1f} deg (nom {c.nominal_travel_deg:.0f}) "
+            f"travel={c.measured_travel_deg:5.1f} deg (nom {c.nominal_travel_deg:.0f}) "
             f"rep={c.repeatability_ticks}"
         )
         if c.cause:
@@ -247,25 +247,25 @@ def _run_calibration(
     args, model, bus, serial, mount: bool = False, logs_dir=None
 ) -> "object":
     if not _confirm(
-        "La main doit etre LIBRE (rien entre les doigts). Continuer ?", args.yes
+        "The hand must be FREE (nothing between the fingers). Continue?", args.yes
     ):
-        raise CalibrationAbort("annule par l'utilisateur")
+        raise CalibrationAbort("cancelled by the user")
 
     def progress(name, servo_id, index, total):
-        print(f"\n[{index}/{total}] calibration de {name} (ID {servo_id}) ...")
+        print(f"\n[{index}/{total}] calibrating {name} (ID {servo_id}) ...")
 
     def on_reset(label, positions):
         detail = "  ".join(f"{name}={ticks}" for name, ticks in positions.items())
-        print(f"  mise a 0 ({label}) : {detail}")
+        print(f"  zero ({label}): {detail}")
 
     def mount_confirm():
         print(
-            "\nServos a 0 deg. Monte les palonniers pour une main ETENDUE "
-            "(palonniers vers le haut), puis valide."
+            "\nServos at 0 deg. Fit the servo horns for an EXTENDED hand "
+            "(horns up), then validate."
         )
         if not args.yes:
             try:
-                input("Appuie sur Entree pour lancer la calibration... ")
+                input("Press Enter to start calibration... ")
             except EOFError:
                 pass
 
@@ -285,7 +285,7 @@ def _run_calibration(
 
 
 def _next_calibration_path(calib_dir, serial: str, tag: str | None = None) -> Path:
-    """N'ecrase jamais une calibration existante : incremente le suffixe."""
+    """Never overwrite an existing calibration: increment the suffix."""
     d = Path(calib_dir)
     d.mkdir(parents=True, exist_ok=True)
     if tag:
@@ -313,38 +313,38 @@ def cmd_calibrate(args) -> int:
         _print_hand(hand)
         if hand.warnings:
             print(
-                "\nATTENTION (a verifier) : "
+                "\nWARNING (to check): "
                 + ", ".join(hand.warnings)
-                + " -> butee douteuse (voir raison ci-dessus)."
+                + " -> doubtful stop (see reason above)."
             )
 
         if args.repeat and args.repeat > 1:
-            print(f"\nRepetabilite (--repeat {args.repeat}) :")
+            print(f"\nRepeatability (--repeat {args.repeat}):")
             for _ in range(args.repeat - 1):
                 again = _run_calibration(args, model, bus, serial, logs_dir=run_dir)
                 worst = 0
                 for name, c in hand.joints.items():
                     d = abs(c.reference_ticks - again.joints[name].reference_ticks)
                     worst = max(worst, d)
-                print(f"  ecart max de reference = {worst} ticks (seuil 2)")
+                print(f"  max reference spread = {worst} ticks (threshold 2)")
 
         out = _next_calibration_path(
             args.calib_dir or paths.calibration_dir(serial), serial, args.tag
         )
         out.write_text(json.dumps(hand.to_dict(), indent=2), encoding="utf-8")
-        print(f"\nCalibration ecrite : {out}")
-        print("(les calibrations precedentes sont conservees)")
-        print(f"Journal de balayage : {run_dir / 'sweep.csv'}")
+        print(f"\nCalibration written: {out}")
+        print("(previous calibrations are kept)")
+        print(f"Sweep log: {run_dir / 'sweep.csv'}")
         return 0 if hand.valid else 2
     except CalibrationAbort as exc:
-        print(f"\nARRET : {exc}")
+        print(f"\nABORT: {exc}")
         return 1
     except KeyboardInterrupt:
-        print("\nCtrl-C : coupe du couple.")
+        print("\nCtrl-C: torque off.")
         return 130
     except Exception as exc:
-        print(f"\nERREUR bus/materiel : {exc}")
-        print("Verifie l'alim 6 V et le cable USB, puis relance.")
+        print(f"\nBUS/HARDWARE error: {exc}")
+        print("Check the 6 V power and the USB cable, then retry.")
         return 1
     finally:
         try:
@@ -369,28 +369,28 @@ def cmd_collect(args) -> int:
     try:
         for j in model.joints.values():
             bus.set_torque_enable(j.servo_id, False)
-        print("Couple coupe. Place la main pres d'une collision, puis Entree.")
-        print("Etiquettes : contact | limite | libre. 'q' pour quitter.")
+        print("Torque off. Place the hand near a collision, then press Enter.")
+        print("Labels: contact | limit | free. 'q' to quit.")
         with out.open("a", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             if fh.tell() == 0:
                 writer.writerow(["joints_rad", "label", "serial"])
             while True:
                 try:
-                    line = input("Entree pour logger (ou etiquette, ou q) > ").strip()
+                    line = input("Enter to log (or a label, or q) > ").strip()
                 except EOFError:
                     break
                 if line.lower() == "q":
                     break
-                label = line or "limite"
+                label = line or "limit"
                 pos = []
                 for j in model.joints.values():
                     ticks = bus.read_position(j.servo_id)
                     pos.append(round(units.ticks_to_rad(ticks), 6))
                 writer.writerow([json.dumps(pos), label, args.serial])
                 fh.flush()
-                print(f"  logged ({label}) : {pos}")
-        print(f"Journal : {out}")
+                print(f"  logged ({label}): {pos}")
+        print(f"Log: {out}")
         return 0
     finally:
         bus.close()
@@ -432,7 +432,7 @@ def cmd_studio(args) -> int:
         print("\nInterrupted.")
         return 130
     except Exception as exc:
-        print(f"\nBUS/MATERIEL error: {exc}")
+        print(f"\nBUS/HARDWARE error: {exc}")
         print("Check the 6 V power and the USB cable, then retry.")
         return 1
     finally:
@@ -475,7 +475,7 @@ def cmd_demo_play(args) -> int:
         print("\nInterrupted.")
         return 130
     except Exception as exc:
-        print(f"\nBUS/MATERIEL error: {exc}")
+        print(f"\nBUS/HARDWARE error: {exc}")
         return 1
     finally:
         controller.disable_torque()
@@ -627,7 +627,7 @@ def cmd_inspect(args) -> int:
         print("\nInterrupted.")
         return 130
     except Exception as exc:
-        print(f"\nBUS/MATERIEL error: {exc}")
+        print(f"\nBUS/HARDWARE error: {exc}")
         print("Check the 6 V power and the USB cable, then retry.")
         return 1
     finally:
@@ -641,40 +641,40 @@ def cmd_inspect(args) -> int:
 
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(prog="lamain", description="La Main - CLI")
-    ap.add_argument("--model", default=None, help="chemin de hand_model.yaml")
-    ap.add_argument("--port", default=None, help="port serie (defaut du modele)")
-    ap.add_argument("--simulate", action="store_true", help="utiliser le FakeBus")
+    ap = argparse.ArgumentParser(prog="lamain", description="LaMain - CLI")
+    ap.add_argument("--model", default=None, help="path to hand_model.yaml")
+    ap.add_argument("--port", default=None, help="serial port (default from the model)")
+    ap.add_argument("--simulate", action="store_true", help="use the FakeBus")
     sub = ap.add_subparsers(dest="command", required=True)
 
-    b = sub.add_parser("bus", help="outils bus (F1)")
+    b = sub.add_parser("bus", help="bus tools (F1)")
     b.add_argument("action", choices=["scan", "set-id", "dump"])
     b.add_argument("old", nargs="?", type=int)
     b.add_argument("new", nargs="?", type=int)
     b.add_argument("servo_id", nargs="?", type=int, default=1)
     b.set_defaults(func=cmd_bus)
 
-    a = sub.add_parser("assemble", help="pose de montage (F2)")
+    a = sub.add_parser("assemble", help="assembly pose (F2)")
     a.add_argument("--release", action="store_true")
     a.add_argument("--yes", action="store_true")
     a.set_defaults(func=cmd_assemble)
 
-    c = sub.add_parser("calibrate", help="calibration auto (F3/F4)")
-    c.add_argument("--verify", action="store_true", help="valider contre le nominal")
-    c.add_argument("--repeat", type=int, default=1, help="repeter N fois (repetabilite)")
+    c = sub.add_parser("calibrate", help="automatic calibration (F3/F4)")
+    c.add_argument("--verify", action="store_true", help="compare against nominal")
+    c.add_argument("--repeat", type=int, default=1, help="repeat N times (repeatability)")
     c.add_argument(
         "--batch",
         action="store_true",
-        help="calibrer d'affilee sans remettre les autres servos a zero entre chaque",
+        help="calibrate straight through without zeroing the other servos between joints",
     )
-    c.add_argument("--serial", default=None, help="numero de serie de la main")
-    c.add_argument("--tag", default=None, help="suffixe du fichier (ex: apres_pouce)")
+    c.add_argument("--serial", default=None, help="hand serial number")
+    c.add_argument("--tag", default=None, help="output file suffix (e.g. after_thumb)")
     c.add_argument("--calib-dir", default=None)
     c.add_argument("--logs-dir", default=None)
-    c.add_argument("--yes", action="store_true", help="ne pas demander confirmation")
+    c.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     c.set_defaults(func=cmd_calibrate)
 
-    k = sub.add_parser("collect-collisions", help="recueil de poses (F7)")
+    k = sub.add_parser("collect-collisions", help="collision pose collection (F7)")
     k.add_argument("--serial", default=DEFAULT_SERIAL)
     k.add_argument("--out", default=None)
     k.add_argument("--logs-dir", default=None)
@@ -682,18 +682,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("studio", help="interactive gesture/episode studio")
     s.add_argument("--calibration", default=None,
-                   help="calibration json (defaut : la plus recente)")
+                   help="calibration json (default: the most recent)")
     s.add_argument("--calib-dir", default=None)
     s.add_argument("--gesture-dir", default=None)
     s.add_argument("--episode-dir", default=None)
-    s.add_argument("--step", type=float, default=3.0, help="jog step en degres")
+    s.add_argument("--step", type=float, default=3.0, help="jog step in degrees")
     s.set_defaults(func=cmd_studio)
 
-    d = sub.add_parser("demo", help="rejouer une demo")
+    d = sub.add_parser("demo", help="replay a demo")
     dsub = d.add_subparsers(dest="demo_action", required=True)
-    dp = dsub.add_parser("play", help="rejouer un episode (rapide)")
+    dp = dsub.add_parser("play", help="replay an episode (fast)")
     dp.add_argument("name")
-    dp.add_argument("--loops", type=int, default=0, help="0 = infini")
+    dp.add_argument("--loops", type=int, default=0, help="0 = infinite")
     dp.add_argument("--speed", type=float, default=2.0)
     dp.add_argument("--torque", default="default",
                     choices=["free", "default", "grasp"])
@@ -703,7 +703,7 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--gesture-dir", default=None)
     dp.set_defaults(func=cmd_demo_play)
 
-    g = sub.add_parser("gesture", help="bibliotheque de gestes")
+    g = sub.add_parser("gesture", help="gesture library")
     gsub = g.add_subparsers(dest="gesture_action", required=True)
     gl = gsub.add_parser("list")
     gl.add_argument("--gesture-dir", default=None)
@@ -745,7 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("joint", nargs="?", default=None, help="joint name (default: all)")
     i.add_argument("--step", type=int, default=4, help="sweep step in ticks")
     i.add_argument("--torque", type=float, default=None,
-                   help="torque %% (default: joint calibration torque)")
+                   help="torque %% (default: probe torque)")
     i.add_argument("--settle", type=float, default=None)
     i.add_argument("--end-margin", type=int, default=20,
                    help="ticks from 0/1023 counted as the servo end")
@@ -761,7 +761,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "bus" and args.action == "set-id" and (args.old is None or args.new is None):
-        print("usage : lamain bus set-id ANCIEN NOUVEAU")
+        print("usage: lamain bus set-id OLD NEW")
         return 2
     return args.func(args)
 

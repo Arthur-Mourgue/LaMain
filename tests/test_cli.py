@@ -34,5 +34,5 @@ def test_assemble_simulated(capsys):
     code = main(["--simulate", "assemble", "--release", "--yes"])
     assert code == 0
     out = capsys.readouterr().out
-    assert "Positions APRES" in out
+    assert "Positions AFTER" in out
     assert "[OK]" in out
