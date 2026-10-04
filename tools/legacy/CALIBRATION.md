@@ -1,116 +1,116 @@
-# Calibration — main custom 5 servos
+# Calibration - custom hand, 5 servos
 
-Doc de référence : à relire avant toute manip sur les servos. Résume ce qu'il faut
-retenir de l'AmazingHand et ce qui change pour notre main.
-Le **pas-à-pas opérationnel** est dans [GUIDE.md](GUIDE.md).
+Reference doc: read before any work on the servos. Summarizes what to keep from
+the AmazingHand and what changes for our hand.
+The **operational step-by-step** is in [GUIDE.md](GUIDE.md).
 
-## 1. Notre main
+## 1. Our hand
 
-Main custom à **5 servos** (l'AmazingHand d'origine en a 8 : 2 par doigt, en parallèle).
+Custom hand with **5 servos** (the original AmazingHand has 8: 2 per finger, in
+parallel).
 
-| ID | Rôle |
+| ID | Role |
 |----|------|
-| 1 | flexion **index** |
-| 2 | flexion **majeur** |
-| 3 | **abduction** index + majeur |
-| 4 | **base pouce** |
-| 5 | **flexion pouce** |
+| 1 | **index** flexion |
+| 2 | **middle** flexion |
+| 3 | index + middle **abduction** |
+| 4 | **thumb base** |
+| 5 | **thumb flexion** |
 
-Contrairement à l'AmazingHand, il n'y a **pas de paire de palonniers face à face**
-par doigt. Les 2 servos du pouce sont empilés mais commandent deux mouvements
-distincts (base + flexion), ils se calibrent donc séparément.
+Unlike the AmazingHand, there is **no facing pair of horns** per finger. The two
+thumb servos are stacked but drive two distinct motions (base + flexion), so
+they are calibrated separately.
 
-## 2. À quoi sert la calibration
+## 2. What calibration is for
 
-Un SCS0009 mesure l'angle de **son** axe, mais son zéro est **arbitraire** par
-rapport à la mécanique : le palonnier peut être emboîté dans n'importe quelle
-orientation sur les cannelures, et chaque servo est légèrement différent.
+An SCS0009 measures the angle of **its** shaft, but its zero is **arbitrary**
+relative to the mechanism: the horn can fit any spline orientation, and every
+servo differs slightly.
 
-La calibration trouve, pour **chaque servo**, l'angle brut qui correspond à une
-**pose de référence** du doigt. Cette valeur s'appelle `MiddlePos` (ou `offset`).
-Ensuite toute commande s'écrit `MiddlePos + angle` — sans quoi chaque doigt
-réagirait différemment et aucune pose (poing, pince…) ne serait reproductible.
+Calibration finds, for **each servo**, the raw angle that corresponds to a
+**reference pose** of the finger. That value is `MiddlePos` (or `offset`).
+Every command is then written as `MiddlePos + angle` - otherwise each finger
+would react differently and no pose (fist, pinch...) would be reproducible.
 
-Source AmazingHand : `PythonExample/AmazingHand_Demo.py:241-244`
+AmazingHand source: `PythonExample/AmazingHand_Demo.py:241-244`
 (`np.deg2rad(MiddlePos[0]+Angle_1)`).
 
-## 3. Convention de référence (celle de l'AmazingHand)
+## 3. Reference convention (the AmazingHand one)
 
-D'après `docs/AmazingHand_Assembly.pdf` p. 22-23 :
+From `docs/AmazingHand_Assembly.pdf` p. 22-23:
 
-- On **fige le servo à `MiddlePos` (0° par défaut)** et c'est **à ce moment**
-  qu'on emboîte/viss le palonnier. C'est le montage qui crée la référence.
-- `AmazingHand_FingerTest.py` balaie : **fermé = `MiddlePos +90`**,
-  **ouvert = `MiddlePos -30`** (signes opposés entre les 2 servos d'un doigt).
-- Critère de réglage : à la fermeture, la mécanique doit être propre et le servo
-  **ne doit jamais forcer en butée**. Sinon on corrige `MiddlePos` de quelques
-  degrés et on recommence.
+- We **freeze the servo at `MiddlePos` (0 deg by default)** and it is **at that
+  moment** that we fit/screw the horn. The assembly creates the reference.
+- `AmazingHand_FingerTest.py` sweeps: **closed = `MiddlePos +90`**,
+  **open = `MiddlePos -30`** (opposite signs between the 2 servos of a finger).
+- Tuning criterion: at closure the mechanism must be clean and the servo
+  **must never force against a stop**. Otherwise correct `MiddlePos` by a few
+  degrees and repeat.
 
-Exemple du PDF : *« right servo horn (ID1) is a bit not far enough
-=> New Middle pos should be increased of +3° »*.
+PDF example: *"right servo horn (ID1) is a bit not far enough
+=> New Middle pos should be increased of +3 deg"*.
 
-Chez nous, le critère « palonniers alignés au plan médian » devient :
-- la pose de référence est **reproduite à l'identique** à chaque test ;
-- les deux butées (ouvert / fermé) restent **dans la plage sûre** du servo.
+For us, the "horns aligned to the median plane" criterion becomes:
+- the reference pose is **reproduced identically** at every test;
+- both stops (open / closed) stay **within the servo's safe range**.
 
-## 4. Procédure (résumé)
+## 4. Procedure (summary)
 
-Outillage : `calib.py` — remplace les deux scripts AmazingHand, gère 1 ou 2
-servos, port/offsets/signes paramétrables. Modes : `--hold`, `--cycle`,
-`--goto DELTA`, `--interactive` (angles à la volée), `--read`. Détail dans
+Tooling: `calib.py` - replaces the two AmazingHand scripts, handles 1 or 2
+servos, configurable port/offsets/signs. Modes: `--hold`, `--cycle`,
+`--goto DELTA`, `--interactive` (angles on the fly), `--read`. Details in
 [GUIDE.md](GUIDE.md).
 
-Pour chaque articulation, palonniers **non vissés** au départ :
+For each joint, horns **not screwed yet** at the start:
 
-1. `--hold` : mettre le(s) servo(s) à `--middle 0`.
-2. Emboîter le(s) palonnier(s) dans la pose de référence, visser M2x4.
-3. `--cycle` : si le doigt ne ferme pas ou butte, ajuster `--middle` par pas de 3°,
-   relancer.
-4. Noter `middle_pos`.
+1. `--hold`: set the servo(s) to `--middle 0`.
+2. Fit the horn(s) in the reference pose, screw M2x4.
+3. `--cycle`: if the finger does not close or hits a stop, adjust `--middle` in
+   3 deg steps and retry.
+4. Note `middle_pos`.
 
-Ordre conseillé :
-1. flexion **index** (ID 1)
-2. flexion **majeur** (ID 2)
-3. **abduction** index+majeur (ID 3, référence = doigts serrés/alignés)
-4. **base pouce** (ID 4) puis **flexion pouce** (ID 5)
+Recommended order:
+1. **index** flexion (ID 1)
+2. **middle** flexion (ID 2)
+3. index+middle **abduction** (ID 3, reference = fingers together/aligned)
+4. **thumb base** (ID 4) then **thumb flexion** (ID 5)
 
-Sécurité : alim **5 V**, vitesse réduite au début, `Ctrl-C` dès qu'un servo force
-ou chauffe. Le 6 V est la limite haute des SCS0009 — le 5 V les préserve.
+Safety: reduced speed at first, `Ctrl-C` as soon as a servo forces or heats up.
+The SCS0009 handles up to 6 V; a lower voltage is gentler.
 
-## 5. Résultat à consigner
+## 5. Result to record
 
-`calibration.json` : un `middle_pos` par servo.
+`calibration.json`: one `middle_pos` per servo.
 
-## 6. État des fichiers
+## 6. File state
 
-- `setup-servo/scs_id_tool.py` : scan + changement d'ID.
-- `setup-servo/calib.py` : outil de calibration (`--hold` / `--cycle` / `--goto` / `--interactive` / `--read`).
-- `setup-servo/calibration.json` : résultats (à remplir).
-- `setup-servo/GUIDE.md` : pas-à-pas opérationnel.
-- Scripts d'origine : `vendor/AmazingHand/PythonExample/AmazingHand_Hand_FingerMiddlePos.py`
-  et `AmazingHand_FingerTest.py`.
-- Guide matériel : `vendor/AmazingHand/docs/AmazingHand_Assembly.pdf`, p. 22-24.
+- `legacy/scs_id_tool.py`: scan + ID change.
+- `legacy/calib.py`: calibration tool (`--hold` / `--cycle` / `--goto` / `--interactive` / `--read`).
+- `legacy/calibration.json`: results (to fill).
+- `legacy/GUIDE.md`: operational step-by-step.
+- Original scripts: `vendor/AmazingHand/PythonExample/AmazingHand_Hand_FingerMiddlePos.py`
+  and `AmazingHand_FingerTest.py`.
+- Hardware guide: `vendor/AmazingHand/docs/AmazingHand_Assembly.pdf`, p. 22-24.
 
-### Format `calibration.json`
+### `calibration.json` format
 
 ```json
 {
   "hand": "custom-5dof",
-  "notes": "1 flexion index; 2 flexion majeur; 3 abduction index+majeur; 4 base pouce; 5 flexion pouce",
-  "reference": "servo fige a middle_pos, palonnier emboite a cette position (convention AmazingHand). Degres.",
+  "notes": "1 index flex; 2 middle flex; 3 index+middle abduction; 4 thumb base; 5 thumb flex",
+  "reference": "servo frozen at middle_pos, horn fitted at that position (AmazingHand convention). Degrees.",
   "servos": {
-    "1": { "role": "flexion_index", "middle_pos": 0 },
-    "2": { "role": "flexion_majeur", "middle_pos": 0 },
-    "3": { "role": "abduction_index_majeur", "middle_pos": 0 },
-    "4": { "role": "base_pouce", "middle_pos": 0 },
-    "5": { "role": "flexion_pouce", "middle_pos": 0 }
+    "1": { "role": "index_flex", "middle_pos": 0 },
+    "2": { "role": "middle_flex", "middle_pos": 0 },
+    "3": { "role": "index_middle_abd", "middle_pos": 0 },
+    "4": { "role": "thumb_rot", "middle_pos": 0 },
+    "5": { "role": "thumb_flex", "middle_pos": 0 }
   }
 }
 ```
 
-## 7. À faire / inconnues
+## 7. To do / unknowns
 
-- [x] Renseigner la correspondance **ID ↔ rôle**.
-- [x] Créer `calib.py`.
-- [ ] Passer la calibration et remplir `calibration.json`.
-- [ ] Commit git (le repo n'a encore aucun commit).
+- [x] Fill in the **ID <-> role** mapping.
+- [x] Create `calib.py`.
+- [ ] Run the calibration and fill `calibration.json`.
