@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Diagnostic sweep of a joint.
 
 Moves one joint slowly across its whole servo travel and records position,

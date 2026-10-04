@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Keyboard jogging of the hand joints.
 
 A `JogController` owns the current normalized pose and applies a fixed angular

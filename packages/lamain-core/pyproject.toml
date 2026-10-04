@@ -3,6 +3,7 @@ name = "lamain-core"
 version = "0.1.0"
 description = "Core library for La Main: bus, model, calibration, safety, controller."
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = [
     "rustypot>=1.10.0",
     "pyyaml>=6.0",

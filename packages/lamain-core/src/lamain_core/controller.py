@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """F5 : HandController, l'unique porte d'entree vers les servos.
 
 Le code client (teleoperation, IA) n'utilise que des noms d'articulation et des

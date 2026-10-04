@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Gestures, episodes, and playback.
 
 - A `Gesture` is a single named pose (reusable brick).

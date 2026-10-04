@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Acces aux servos : interface commune, driver rustypot reel et FakeBus.
 
 Le reste de la bibliotheque ne parle qu'a `ServoBus`, jamais directement a

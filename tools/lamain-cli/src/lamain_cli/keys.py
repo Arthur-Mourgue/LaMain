@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Non-blocking keyboard input for the studio (Linux, no extra dependency)."""
 from __future__ import annotations
 

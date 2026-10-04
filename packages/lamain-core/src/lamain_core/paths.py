@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Single place that resolves every on-disk path used by the project.
 
 Layout:

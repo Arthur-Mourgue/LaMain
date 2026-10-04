@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """F6 : garde-fous V1.
 
 Couches : bornage articulaire logiciel (clamp ou strict), limites materielles

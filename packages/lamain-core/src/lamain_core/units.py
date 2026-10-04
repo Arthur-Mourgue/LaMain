@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Conversions d'unites pour les servos Feetech SCS0009.
 
 D'apres la fiche SCS0009 (spec La Main) : la plage mecanique utile est de 300

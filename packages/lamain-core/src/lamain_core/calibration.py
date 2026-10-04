@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """F3/F4 : calibration automatique exhaustive.
 
 Sequence (comme l'AmazingHand) :

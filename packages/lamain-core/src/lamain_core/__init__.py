@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """lamain-core : bibliotheque de La Main (bus, modele, calibration, securite)."""
 from .calibration import (
     CalibrationAbort,

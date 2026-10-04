@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """CLI `lamain` for La Main.
 
 Subcommands:

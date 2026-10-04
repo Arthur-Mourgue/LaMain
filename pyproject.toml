@@ -3,6 +3,7 @@ name = "lamain-workspace"
 version = "0.1.0"
 description = "Workspace for La Main (custom 5-dof robotic hand)."
 requires-python = ">=3.12"
+license = "Apache-2.0"
 dependencies = ["lamain-core", "lamain-cli"]
 
 [dependency-groups]

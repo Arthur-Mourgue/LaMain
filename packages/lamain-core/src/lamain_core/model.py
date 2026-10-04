@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Lecture de `config/hand_model.yaml` : la description de la conception.
 
 Tout parametre (couples, pas, seuils, marges, ordre) vient de ce fichier.

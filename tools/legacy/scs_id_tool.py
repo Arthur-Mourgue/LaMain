@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Scanner et changer l'ID de servos Feetech SCS0009 (remplace le logiciel FD sous Linux).
 
 Installation :  pip install feetech-servo-sdk

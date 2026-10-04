@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Calibration des servos Feetech SCS0009 de la main custom (5 dof).
 
 Remplace les scripts AmazingHand_Hand_FingerMiddlePos.py et

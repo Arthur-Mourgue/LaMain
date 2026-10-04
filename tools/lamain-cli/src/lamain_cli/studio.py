@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Interactive studio: jog the hand with the keyboard, save gestures and
 episodes, and replay them fast for a demo video."""
 from __future__ import annotations
