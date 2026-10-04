@@ -29,17 +29,17 @@ def test_calibrate_end_to_end_on_fakebus():
     bus = FakeBus.standard_hand(m)
     hand = calibrate_hand(bus, m, "TEST", logs_dir=None)
     assert hand.valid, {n: c.cause for n, c in hand.joints.items()}
-    # manivelles : point mort = milieu de course = position de montage
+    # cranks: dead center = mid travel = assembly position
     for name in ("index_flex", "middle_flex", "thumb_flex"):
         c = hand.joints[name]
         assert c.joint_type == "crank"
         assert abs(c.dead_center_ticks - m.joint(name).assembly_position) <= 3
-    # toutes les plages de travail restent dans les butees mesurees
+    # every working range stays inside the measured stops
     for c in hand.joints.values():
         assert c.stop_low_ticks <= c.min_ticks <= c.max_ticks <= c.stop_high_ticks
         assert c.reference_ticks >= c.stop_low_ticks
         assert c.reference_ticks <= c.stop_high_ticks
-    # deux zeros stockes, distincts de la reference pour les two_stop
+    # two zeros stored, distinct from the reference for two_stop joints
     for c in hand.joints.values():
         assert c.mount_ticks > 0
 
@@ -91,8 +91,8 @@ def test_blocked_joint_is_reported_failed():
 
 
 def test_no_mechanical_stop_is_flagged():
-    # servo libre sur toute la course : les deux butees tombent sur la fin
-    # interne du servo -> calibration marquee en echec.
+    # free servo over the whole travel: both stops fall on the servo's internal
+    # end -> calibration marked as failed.
     m = make_model()
     servos = [
         FakeServo(1, stop_min=0, stop_max=1023, position=511, goal=511, speed_ticks=40)

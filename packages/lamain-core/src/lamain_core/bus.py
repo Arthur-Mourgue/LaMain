@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Acces aux servos : interface commune, driver rustypot reel et FakeBus.
+"""Servo access: common interface, real rustypot driver and FakeBus.
 
-Le reste de la bibliotheque ne parle qu'a `ServoBus`, jamais directement a
-rustypot. Toute adresse de registre est evitee : on passe par la table de
-registres de rustypot (`Scs0009PyController.registers()`), par nom.
+The rest of the library only talks to `ServoBus`, never directly to rustypot.
+Register addresses are avoided: access goes through rustypot's register table
+(`Scs0009PyController.registers()`), by name.
 """
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ TORQUE_ON = 1
 TORQUE_OFF = 2
 TORQUE_FREE = 3
 
-TORQUE_REG_FULL_SCALE = 1000  # registre 16 : 1000 = 100 %
+TORQUE_REG_FULL_SCALE = 1000  # register 16: 1000 = 100 %
 SERVO_MIN_TICK = 0
 SERVO_MAX_TICK = 1023
-STALL_LOAD = 1000.0           # charge (present_load) au blocage a 100 % de couple
+STALL_LOAD = 1000.0           # load (present_load) when stalled at 100 % torque
 
 
 class BusError(RuntimeError):
@@ -30,7 +30,7 @@ class ServoNotFound(BusError):
 
 
 def _scalar(value):
-    """rustypot renvoie une sequence (1 element) meme pour un seul servo."""
+    """rustypot returns a sequence (one element) even for a single servo."""
     if isinstance(value, (int, float, bool)):
         return value
     try:
@@ -40,7 +40,7 @@ def _scalar(value):
 
 
 class ServoBus(Protocol):
-    """Interface minimale utilisee par calibration, safety et controller."""
+    """Minimal interface used by calibration, safety and controller."""
 
     simulated: bool
 
@@ -62,7 +62,7 @@ class ServoBus(Protocol):
 
 
 # --------------------------------------------------------------------------- #
-# Driver reel
+# Real driver
 # --------------------------------------------------------------------------- #
 class RustypotBus:
     simulated = False
@@ -80,23 +80,23 @@ class RustypotBus:
 
     def _require(self, servo_id: int) -> None:
         if not self._c.ping(servo_id):
-            raise ServoNotFound(f"servo {servo_id} absent du bus")
+            raise ServoNotFound(f"servo {servo_id} not on the bus")
 
     def _read_reg(self, servo_id: int, name: str) -> int:
         try:
             return int(_scalar(self._c.read_register(servo_id, name, retries=2)))
         except Exception as exc:
-            raise BusError(f"lecture {name} servo {servo_id} : {exc}") from exc
+            raise BusError(f"read {name} servo {servo_id}: {exc}") from exc
 
     def _write_reg(self, servo_id: int, name: str, value: int) -> None:
         try:
             self._c.write_register(servo_id, name, int(value), retries=2)
         except Exception as exc:
-            raise BusError(f"ecriture {name} servo {servo_id} : {exc}") from exc
+            raise BusError(f"write {name} servo {servo_id}: {exc}") from exc
 
     def read_position(self, servo_id: int) -> int:
-        # Registre brut 0-1023 (l'API "raw" de rustypot utilise une autre
-        # representation multi-tour, sans rapport avec les ticks).
+        # Raw 0-1023 register (rustypot's "raw" API uses a different multi-turn
+        # representation, unrelated to ticks).
         return self._read_reg(servo_id, "present_position")
 
     def read_load(self, servo_id: int) -> int:
@@ -106,7 +106,7 @@ class RustypotBus:
         return self._read_reg(servo_id, "present_temperature")
 
     def read_voltage(self, servo_id: int) -> float:
-        # Registre present_voltage : valeur brute en 0,1 V.
+        # present_voltage register: raw value in 0.1 V.
         return self._read_reg(servo_id, "present_voltage") / 10.0
 
     def read_moving(self, servo_id: int) -> int:
@@ -116,17 +116,17 @@ class RustypotBus:
         self._write_reg(servo_id, "goal_position", int(ticks))
 
     def set_goal_speed(self, servo_id: int, speed: float) -> None:
-        # rustypot : 0 = vitesse max, 1..6 = cran de vitesse.
+        # rustypot: 0 = max speed, 1..6 = speed step.
         try:
             self._c.write_goal_speed(servo_id, float(speed))
         except Exception as exc:
-            raise BusError(f"ecriture goal_speed servo {servo_id} : {exc}") from exc
+            raise BusError(f"write goal_speed servo {servo_id}: {exc}") from exc
 
     def set_torque_enable(self, servo_id: int, on: bool) -> None:
         try:
             self._c.write_torque_enable(servo_id, TORQUE_ON if on else TORQUE_OFF)
         except Exception as exc:
-            raise BusError(f"torque servo {servo_id} : {exc}") from exc
+            raise BusError(f"torque servo {servo_id}: {exc}") from exc
 
     def read_torque_enable(self, servo_id: int) -> int:
         return self._read_reg(servo_id, "torque_enable")
@@ -141,7 +141,7 @@ class RustypotBus:
     def write_register(self, servo_id: int, name: str, value: int) -> None:
         self._write_reg(servo_id, name, int(value))
 
-    def step(self) -> None:  # le materiel n'a pas besoin d'etre avance
+    def step(self) -> None:  # hardware does not need to be advanced
         return None
 
     def close(self) -> None:
@@ -159,7 +159,7 @@ class FakeServo:
     assembly_position: int = 511
     position: int = 511
     goal: int = 511
-    speed_ticks: int = 24          # ticks parcourus par step()
+    speed_ticks: int = 24          # ticks travelled per step()
     torque_enabled: bool = True
     torque_limit_pct: float = 100.0
     fault: str | None = None       # "absent" | "overtemp"
@@ -168,7 +168,7 @@ class FakeServo:
 
 
 class FakeBus:
-    """Simulateur de main : butees, point mort, charge en butee, bruit, pannes."""
+    """Hand simulator: stops, dead center, load at the stop, noise, faults."""
 
     simulated = True
 
@@ -200,7 +200,7 @@ class FakeBus:
             )
         return cls(servos, seed=seed)
 
-    # protocole ------------------------------------------------------------- #
+    # protocol -------------------------------------------------------------- #
     def scan(self) -> dict[int, int]:
         return {
             s.servo_id: 7777
@@ -211,7 +211,7 @@ class FakeBus:
     def _s(self, servo_id: int) -> FakeServo:
         s = self._servos.get(servo_id)
         if s is None or s.fault == "absent":
-            raise ServoNotFound(f"servo {servo_id} absent du bus")
+            raise ServoNotFound(f"servo {servo_id} not on the bus")
         return s
 
     def read_position(self, servo_id: int) -> int:
@@ -240,7 +240,7 @@ class FakeBus:
         self._s(servo_id).goal = int(ticks)
 
     def set_goal_speed(self, servo_id: int, speed: float) -> None:
-        self._s(servo_id)  # valide l'existence
+        self._s(servo_id)  # validate existence
 
     def set_torque_enable(self, servo_id: int, on: bool) -> None:
         self._s(servo_id).torque_enabled = bool(on)
@@ -259,14 +259,14 @@ class FakeBus:
             return int(self.read_voltage(servo_id) * 10)
         if name == "max_torque_limit":
             return int(self._s(servo_id).torque_limit_pct * TORQUE_REG_FULL_SCALE / 100)
-        raise BusError(f"registre {name!r} non simule")
+        raise BusError(f"register {name!r} not simulated")
 
     def write_register(self, servo_id: int, name: str, value: int) -> None:
         self._s(servo_id)
         if name == "max_torque_limit":
             self._s(servo_id).torque_limit_pct = value * 100.0 / TORQUE_REG_FULL_SCALE
         else:
-            raise BusError(f"registre {name!r} non simule")
+            raise BusError(f"register {name!r} not simulated")
 
     def step(self) -> None:
         for s in self._servos.values():

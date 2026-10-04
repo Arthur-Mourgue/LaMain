@@ -4,7 +4,7 @@ from lamain_core.bus import FakeBus, FakeServo
 def test_servo_moves_and_clamps_at_stop():
     s = FakeServo(1, stop_min=100, stop_max=500, position=300, goal=300, speed_ticks=50)
     bus = FakeBus([s])
-    bus.write_goal(1, 1000)  # au-dela de la butee haute
+    bus.write_goal(1, 1000)  # beyond the high stop
     for _ in range(20):
         bus.step()
     assert bus.read_position(1) == 500
@@ -26,6 +26,6 @@ def test_absent_servo_raises():
     try:
         bus.read_position(1)
     except Exception as exc:
-        assert "absent" in str(exc)
+        assert "not on the bus" in str(exc)
     else:  # pragma: no cover
-        raise AssertionError("attendu une erreur")
+        raise AssertionError("expected an error")

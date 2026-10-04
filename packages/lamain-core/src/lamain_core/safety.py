@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""F6 : garde-fous V1.
+"""F6: V1 guardrails.
 
-Couches : bornage articulaire logiciel (clamp ou strict), limites materielles
-(registres min/max position, ecrits par le controleur), couple par mode,
-limitation de saut, surveillance temperature/tension/charge, watchdog,
-et interdiction de traverser le point mort des manivelles.
+Layers: software joint clamping (clamp or strict), hardware limits (min/max
+position registers, written by the controller), per-mode torque, step limiting,
+temperature/voltage/load monitoring, watchdog, and forbidding crossing the
+dead center of the crank joints.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class JointLimit:
 class SafetyFilter:
     def __init__(self, calib: HandCalibration, model: HandModel, mode: str = "clamp"):
         if mode not in ("clamp", "strict"):
-            raise ValueError("mode doit etre clamp|strict")
+            raise ValueError("mode must be clamp|strict")
         self.mode = mode
         self.model = model
         # Demo/playback may relax the per-cycle step cap (bounds are still
@@ -59,7 +59,7 @@ class SafetyFilter:
             "grasp": saf.grasp_torque_pct,
         }
         if mode not in table:
-            raise ValueError(f"mode de couple inconnu : {mode!r}")
+            raise ValueError(f"unknown torque mode: {mode!r}")
         return table[mode]
 
     def max_step_ticks(self, name: str) -> int:
@@ -72,7 +72,7 @@ class SafetyFilter:
         if desired < lim.min_ticks or desired > lim.max_ticks:
             if self.mode == "strict":
                 raise SafetyError(
-                    f"{name}: consigne {desired} hors plage "
+                    f"{name}: command {desired} out of range "
                     f"[{lim.min_ticks}, {lim.max_ticks}]"
                 )
             return max(lim.min_ticks, min(lim.max_ticks, desired))
@@ -89,7 +89,7 @@ class SafetyFilter:
         return desired
 
     def check_health(self, temperature: int, voltage: float, load: int) -> str:
-        """Retourne 'ok' | 'warn' | 'stop'."""
+        """Return 'ok' | 'warn' | 'stop'."""
         pre = self.model.preconditions
         if temperature >= pre.abort_temperature:
             return "stop"

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Lecture de `config/hand_model.yaml` : la description de la conception.
+"""Read `config/hand_model.yaml`: the design description.
 
-Tout parametre (couples, pas, seuils, marges, ordre) vient de ce fichier.
-Aucune valeur "magique" ne doit apparaitre ailleurs dans le code.
+Every parameter (torques, steps, thresholds, margins, order) comes from this
+file. No "magic" value should appear anywhere else in the code.
 """
 from __future__ import annotations
 
@@ -34,16 +34,16 @@ class JointModel:
     def __post_init__(self) -> None:
         if self.reference not in REFERENCE_STRATEGIES:
             raise ValueError(
-                f"{self.name}: reference inconnue {self.reference!r} "
-                f"(attendu : {sorted(REFERENCE_STRATEGIES)})"
+                f"{self.name}: unknown reference {self.reference!r} "
+                f"(expected: {sorted(REFERENCE_STRATEGIES)})"
             )
         if self.branch not in ("positive", "negative"):
-            raise ValueError(f"{self.name}: branch doit etre positive|negative")
+            raise ValueError(f"{self.name}: branch must be positive|negative")
         if self.joint_type not in JOINT_TYPES:
-            raise ValueError(f"{self.name}: type doit etre {sorted(JOINT_TYPES)}")
+            raise ValueError(f"{self.name}: type must be {sorted(JOINT_TYPES)}")
         if self.reference_side not in REFERENCE_SIDES:
             raise ValueError(
-                f"{self.name}: reference_side doit etre {sorted(REFERENCE_SIDES)}"
+                f"{self.name}: reference_side must be {sorted(REFERENCE_SIDES)}"
             )
 
     @property
@@ -78,7 +78,7 @@ class CalibrationConfig:
     settle_s: float = 0.05
     servo_end_margin_ticks: int = 40
     repeat_tolerance_ticks: int = 2
-    reference_mode: str = "middle"   # "middle" (milieu des butees) | "mount" (zero palonnier)
+    reference_mode: str = "middle"   # "middle" (midpoint of stops) | "mount" (assembly zero)
     joint_timeout_s: float = 60.0    # max time per joint before aborting
     progress_every: int = 30         # print a progress line every N reads
 
@@ -116,13 +116,13 @@ class HandModel:
         try:
             return self.joints[name]
         except KeyError:
-            raise KeyError(f"articulation inconnue : {name!r}") from None
+            raise KeyError(f"unknown joint: {name!r}") from None
 
     def joint_by_servo_id(self, servo_id: int) -> JointModel:
         for j in self.joints.values():
             if j.servo_id == servo_id:
                 return j
-        raise KeyError(f"aucun joint pour le servo {servo_id}")
+        raise KeyError(f"no joint for servo {servo_id}")
 
 
 def _joint_from_dict(name: str, raw: dict) -> JointModel:
@@ -149,14 +149,14 @@ def load_hand_model(path: str | Path) -> HandModel:
     saf = data.get("safety", {})
     joints_raw = data.get("joints", {})
     if not joints_raw:
-        raise ValueError("hand_model.yaml : aucune articulation definie")
+        raise ValueError("hand_model.yaml: no joint defined")
 
     joints = {name: _joint_from_dict(name, raw) for name, raw in joints_raw.items()}
 
     order = tuple(data.get("calibration_order") or joints.keys())
     for name in order:
         if name not in joints:
-            raise ValueError(f"calibration_order : joint inconnu {name!r}")
+            raise ValueError(f"calibration_order: unknown joint {name!r}")
 
     return HandModel(
         model_version=str(data.get("model_version", "unknown")),

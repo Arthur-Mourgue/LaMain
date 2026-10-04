@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""F5 : HandController, l'unique porte d'entree vers les servos.
+"""F5: HandController, the single entry point to the servos.
 
-Le code client (teleoperation, IA) n'utilise que des noms d'articulation et des
-radians (ou des coordonnees normalisees [-1, 1]). Il ne voit jamais un ID de
-servo ni une valeur brute. Toute consigne passe par le filtre de securite F6.
+Client code (teleoperation, AI) only uses joint names and radians (or normalized
+coordinates [-1, 1]). It never sees a servo ID or a raw value. Every command
+goes through the F6 safety filter.
 """
 from __future__ import annotations
 
@@ -71,8 +71,8 @@ class HandController:
     ):
         if require_valid and not calibration.valid:
             raise RuntimeError(
-                "calibration invalide : refus de demarrer. "
-                "Lance `lamain calibrate` (ou corrige les articulations en echec)."
+                "invalid calibration: refusing to start. "
+                "Run `lamain calibrate` (or fix the failed joints)."
             )
         self.bus = bus
         self.model = model
@@ -80,7 +80,7 @@ class HandController:
         self.safety = SafetyFilter(calibration, model, mode=safety_mode)
         self._last_cmd: dict[str, int] = {}
 
-    # cycle de vie ---------------------------------------------------------- #
+    # lifecycle ------------------------------------------------------------- #
     @classmethod
     def from_files(
         cls,
@@ -136,7 +136,7 @@ class HandController:
         cal = self.calibration.joints[name]
         return cal.direction * (ticks - cal.reference_ticks) * units.RAD_PER_TICK
 
-    # API articulaire ------------------------------------------------------- #
+    # joint API ------------------------------------------------------------- #
     def get_joint_positions(self) -> dict[str, float]:
         out: dict[str, float] = {}
         for j in self.model.joints.values():
@@ -156,7 +156,7 @@ class HandController:
             applied[name] = self._ticks_to_rad(name, ticks)
         return applied
 
-    # variantes normalisees [-1, 1] (sur la plage MESUREE, jamais le nominal) #
+    # normalized variants [-1, 1] (on the MEASURED range, never the nominal) #
     def _spans_ticks(self, name: str) -> tuple[int, int]:
         """(positive, negative) travel in ticks from the reference, i.e. how
         many ticks `q=+1` / `q=-1` cover."""
@@ -193,9 +193,9 @@ class HandController:
             targets[name] = q * span
         return self.set_joint_positions(targets)
 
-    # limites materielles (EEPROM) ------------------------------------------ #
+    # hardware limits (EEPROM) ---------------------------------------------- #
     def write_hardware_limits(self) -> None:
-        """Ecrit min/max position dans l'EEPROM (filet si le logiciel plante)."""
+        """Write min/max position to EEPROM (a fallback if the software crashes)."""
         if self.bus.simulated:
             return
         for name, cal in self.calibration.joints.items():

@@ -6,7 +6,7 @@ def test_roundtrip_ticks_deg():
 
 
 def test_deg_per_tick_matches_spec():
-    # 300 deg / 1024 pas = 0,293 deg
+    # 300 deg / 1024 steps = 0.293 deg
     assert abs(units.DEG_PER_TICK - 0.29296875) < 1e-9
 
 

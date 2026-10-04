@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Conversions d'unites pour les servos Feetech SCS0009.
+"""Unit conversions for Feetech SCS0009 servos.
 
-D'apres la fiche SCS0009 (spec La Main) : la plage mecanique utile est de 300
-deg sur les registres 0-1023, soit 1024 pas pour 300 deg -> 0,293 deg/pas.
-On travaille en ticks bruts dans toute la logique bas niveau ; les radians
-n'apparaissent qu'a la frontiere de l'API `HandController`.
+From the SCS0009 datasheet: the usable mechanical range is 300 deg over the
+0-1023 registers, i.e. 1024 steps for 300 deg -> 0.293 deg/step. Low-level
+logic works in raw ticks; radians only appear at the `HandController` API edge.
 """
 from __future__ import annotations
 

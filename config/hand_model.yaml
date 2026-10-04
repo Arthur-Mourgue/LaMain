@@ -1,9 +1,8 @@
-# La Main - description de la conception (identique pour toutes les mains).
-# Ce fichier est versionne avec la CAO. Aucune valeur "magique" ne doit rester
-# dans le code : tout parametre de calibration/vitesse/couple vient d'ici.
+# LaMain - design description (identical for every hand).
+# This file is versioned with the CAD. No "magic" value should remain in the
+# code: every calibration/speed/torque parameter comes from here.
 #
-# Unites : positions en ticks (0-1023, 0,293 deg/pas sur 300 deg).
-# Les plages nominales sont des PLACEHOLDERS en attendant les valeurs de la CAO.
+# Units: positions in ticks (0-1023, 0.293 deg/step over 300 deg).
 
 model_version: "lamain-v1"
 
@@ -12,31 +11,31 @@ bus:
   baudrate: 1000000
   servo_model: SCS0009
 
-# Ordre de calibration : le pouce en dernier, doigts tendus et ecartes,
-# pour eviter une fausse butee par collision.
+# Calibration order: thumb last, fingers extended and spread, to avoid a false
+# stop caused by a collision.
 calibration_order: [index_flex, middle_flex, index_middle_abd, thumb_rot, thumb_flex]
 
 calibration:
-  step_ticks: 2              # pas d'approche lente (2 pas ~= 0,6 deg)
-  fast_step_ticks: 8         # pas d'approche rapide (localisation)
-  stable_reads: 10           # N lectures stables avant de suspecter une butee
-  stable_epsilon_ticks: 1    # variation max admise "stable"
-  overrun_ticks: 20          # la consigne doit depasser la position d'autant
-  # Confirmation de butee : a l'approche d'une butee on POUSSE au couple max et
-  # on laisse 2 s pour vraiment la sentir, puis on part dans l'autre sens.
+  step_ticks: 2              # slow-approach step (2 steps ~= 0.6 deg)
+  fast_step_ticks: 8         # fast-approach step (locating)
+  stable_reads: 10           # N stable reads before suspecting a stop
+  stable_epsilon_ticks: 1    # max variation allowed for "stable"
+  overrun_ticks: 20          # the command must lead the position by this much
+  # Stop confirmation: approaching a stop, PUSH at max torque and dwell 2 s to
+  # really feel it, then head to the other direction.
   probe_torque_pct: 100
   probe_max_s: 2.0
-  torque_pct: 60             # balayage
-  backoff_deg: 7             # recul avant chaque re-approche
-  repeat: 1                  # nombre de mesures lentes (mediane)
-  settle_s: 0.02             # pause entre deux lectures (materiel reel)
-  joint_timeout_s: 60        # temps max par articulation avant abandon
-  progress_every: 30         # affiche une ligne de progression toutes les N lectures
-  servo_end_margin_ticks: 40 # butee a moins de X ticks de 0/1023 = "fin de servo"
-  repeat_tolerance_ticks: 2  # au-dela => butee molle (status "uncertain")
-  # Zero logique q=0 : "middle" = milieu des deux butees (deux sens symetriques)
-  # ou "mount" = zero palonnier (pose de montage). "middle" est plus robuste si
-  # le palonnier est monte pres d'une butee.
+  torque_pct: 60             # sweep torque
+  backoff_deg: 7             # back-off before each re-approach
+  repeat: 1                  # number of slow measurements (median)
+  settle_s: 0.02             # pause between two reads (real hardware)
+  joint_timeout_s: 60        # max time per joint before aborting
+  progress_every: 30         # print a progress line every N reads
+  servo_end_margin_ticks: 40 # stop within X ticks of 0/1023 = "servo end"
+  repeat_tolerance_ticks: 2  # beyond this => soft stop (status "uncertain")
+  # Logical zero q=0: "middle" = midpoint of the two stops (symmetric both ways)
+  # or "mount" = assembly zero (mount pose). "middle" is more robust when the
+  # horn is mounted near a stop.
   reference_mode: middle
 
 preconditions:
@@ -46,23 +45,23 @@ preconditions:
   abort_temperature: 55
 
 safety:
-  home_margin_deg: 0         # marge en fin de course (0 = aller au max mesure)
+  home_margin_deg: 0         # end-of-travel margin (0 = go to the measured max)
   free_torque_pct: 20
   default_torque_pct: 40
   grasp_torque_pct: 80
   watchdog_timeout_s: 1.0
   max_step_deg_per_cycle: 10
-  move_speed: 3              # cran de vitesse rustypot (0 = max, 1..6)
+  move_speed: 3              # rustypot speed step (0 = max, 1..6)
 
 joints:
-  # --- Manivelle : extension = point mort (extremum, pas une butee) ---
+  # --- Crank: extension = dead center (extremum, not a stop) ---
   index_flex:
     servo_id: 1
-    assembly_position: 511          # palonnier "vers le haut" a cette position
+    assembly_position: 511          # horn "up" at this position
     type: crank
-    reference: dead_center_midpoint # milieu des deux butees de flexion
-    branch: positive                # sens de travail (positive = fermer)
-    nominal_travel_deg: 288         # course mesuree au banc (~20..1004 ticks)
+    reference: dead_center_midpoint # midpoint of the two flexion stops
+    branch: positive                # working direction (positive = close)
+    nominal_travel_deg: 288         # travel measured on the bench (~20..1004 ticks)
     range_tolerance_deg: 15
     max_speed_dps: 120
 
@@ -72,41 +71,41 @@ joints:
     type: crank
     reference: dead_center_midpoint
     branch: positive
-    nominal_travel_deg: 288         # course mesuree au banc (a confirmer CAO)
+    nominal_travel_deg: 288         # measured on the bench (to confirm with CAD)
     range_tolerance_deg: 15
     max_speed_dps: 120
 
-  # --- Abduction index+majeur : doigts colles = butee ---
+  # --- Index+middle abduction: fingers together = stop ---
   index_middle_abd:
     servo_id: 3
     assembly_position: 511
     type: two_stop
-    reference: hard_stop_min         # doigts colles (a confirmer en CAO)
-    reference_side: auto             # cote a la plus grande portee
+    reference: hard_stop_min         # fingers together (to confirm with CAD)
+    reference_side: auto             # side with the greatest reach
     branch: positive
-    nominal_travel_deg: 210         # mesure au banc (a confirmer CAO)
+    nominal_travel_deg: 210         # measured on the bench (to confirm with CAD)
     range_tolerance_deg: 15
     max_speed_dps: 120
 
-  # --- Rotation base du pouce : butee de chaque cote (a confirmer CAO) ---
+  # --- Thumb base rotation: a stop on each side (to confirm with CAD) ---
   thumb_rot:
     servo_id: 4
-    assembly_position: 844           # mi-course mesuree (511 est hors plage)
+    assembly_position: 844           # measured mid-travel (511 is out of range)
     type: two_stop
-    reference: hard_stop_min         # butee la plus repetable (a trancher)
-    reference_side: auto             # cote a la plus grande portee
+    reference: hard_stop_min         # most repeatable stop (to decide)
+    reference_side: auto             # side with the greatest reach
     branch: positive
-    nominal_travel_deg: 95          # mesure au banc (a confirmer CAO)
+    nominal_travel_deg: 95          # measured on the bench (to confirm with CAD)
     range_tolerance_deg: 15
     max_speed_dps: 120
 
-  # --- Flexion pouce : manivelle comme ID 1 ---
+  # --- Thumb flexion: crank like ID 1 ---
   thumb_flex:
     servo_id: 5
     assembly_position: 511
     type: crank
     reference: dead_center_midpoint
     branch: positive
-    nominal_travel_deg: 288         # mesure au banc (a confirmer CAO)
+    nominal_travel_deg: 288         # measured on the bench (to confirm with CAD)
     range_tolerance_deg: 15
     max_speed_dps: 120

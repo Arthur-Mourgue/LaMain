@@ -87,4 +87,4 @@ def test_refuses_invalid_calibration():
 
 def test_hardware_limits_skipped_on_fake():
     m, ctrl = _controller()
-    ctrl.write_hardware_limits()  # ne doit pas lever sur le FakeBus
+    ctrl.write_hardware_limits()  # must not raise on the FakeBus
