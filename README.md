@@ -2,6 +2,8 @@
 
 The smallest three-finger end-effector with tactile feedback that replaces the SO-101 gripper, and succeeds at a task the gripper fails, with the dataset and policy to prove it.
 
+![LaMain prototype](docs/lamainv0.gif)
+
 <!-- TODO(arthur): GIF -->
 
 ## Status
