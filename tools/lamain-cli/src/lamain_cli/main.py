@@ -586,6 +586,90 @@ def _write_inspect_summary(run_dir, diags, serial: str) -> None:
     (run_dir / "summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _manual_jog(args, model, bus, joint) -> None:
+    """Keyboard jog of one joint to tell a mechanical block from friction."""
+    sid = joint.servo_id
+    print(f"\n=== manual jog: {joint.name} (servo {sid}) ===")
+    # keep the other joints out of the way
+    for j in model.joints.values():
+        if j.servo_id == sid:
+            continue
+        bus.set_torque_limit_pct(j.servo_id, model.calibration.torque_pct)
+        bus.set_torque_enable(j.servo_id, True)
+        bus.write_goal(j.servo_id, j.assembly_position)
+    for _ in range(50):
+        bus.step()
+
+    torque = args.torque if args.torque is not None else model.calibration.probe_torque_pct
+    bus.set_torque_limit_pct(sid, torque)
+    bus.set_goal_speed(sid, model.safety.move_speed)
+    bus.set_torque_enable(sid, True)
+    goal = bus.read_position(sid)
+    step = args.step
+
+    print(
+        "keys: a=-step d=+step  f/s=step/2 *2  p=push 100%  h=mount  "
+        "0=0 9=1023  l=read  q=quit"
+    )
+
+    def settle(frames=8):
+        for _ in range(frames):
+            bus.step()
+            if not bus.simulated:
+                time.sleep(0.03)
+
+    keys_reader = KeyReader()
+    try:
+        while True:
+            pos = bus.read_position(sid)
+            load = bus.read_load(sid)
+            temp = bus.read_temperature(sid)
+            print(
+                f"  goal={goal:4} pos={pos:4} load={load:5} T={temp} C  "
+                f"step={step} torque={torque:.0f}%"
+            )
+            key = keys_reader.read_key()
+            if key is None:
+                continue
+            if key == "q":
+                break
+            elif key == "a":
+                goal = max(0, goal - step)
+            elif key == "d":
+                goal = min(1023, goal + step)
+            elif key == "f":
+                step = max(1, step // 2)
+                continue
+            elif key == "s":
+                step = min(128, step * 2)
+                continue
+            elif key == "h":
+                goal = joint.assembly_position
+            elif key == "0":
+                goal = 0
+            elif key == "9":
+                goal = 1023
+            elif key == "l":
+                continue
+            elif key == "p":
+                # push briefly at max torque to break stiction and see if it moves
+                push = 1023 if goal >= pos else 0
+                bus.set_torque_limit_pct(sid, 100.0)
+                bus.write_goal(sid, push)
+                settle(20)
+                bus.set_torque_limit_pct(sid, torque)
+                goal = bus.read_position(sid)
+                continue
+            else:
+                continue
+            bus.write_goal(sid, goal)
+            settle()
+    finally:
+        keys_reader.close()
+    bus.set_torque_enable(sid, False)
+    print("Torque off.")
+
+
 def cmd_inspect(args) -> int:
     model = _model(args)
     bus = _bus(args, model)
@@ -600,6 +684,13 @@ def cmd_inspect(args) -> int:
             bus.write_goal(j.servo_id, j.assembly_position)
         for _ in range(50):
             bus.step()
+
+        if getattr(args, "manual", False):
+            if len(names) != 1:
+                print("--manual needs exactly one joint (e.g. `lamain inspect index_flex --manual`).")
+                return 2
+            _manual_jog(args, model, bus, model.joint(names[0]))
+            return 0
 
         diags = []
         for name in names:
@@ -743,6 +834,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     i = sub.add_parser("inspect", help="diagnostic sweep of a joint")
     i.add_argument("joint", nargs="?", default=None, help="joint name (default: all)")
+    i.add_argument("-m", "--manual", action="store_true",
+                   help="keyboard jog one joint to tell a block from friction")
     i.add_argument("--step", type=int, default=4, help="sweep step in ticks")
     i.add_argument("--torque", type=float, default=None,
                    help="torque %% (default: probe torque)")
