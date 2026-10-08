@@ -16,7 +16,7 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["packages/lamain-core", "tools/lamain-cli"]
+members = ["packages/lamain-core", "packages/lamain-cli"]
 
 [tool.uv.sources]
 lamain-core = { workspace = true }

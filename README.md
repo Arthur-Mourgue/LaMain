@@ -40,8 +40,7 @@ uv run pytest           # tests on FakeBus, no hardware
 ```
 lamain/
 ├── packages/lamain-core/   # reusable library (bus, calibration, safety, controller, demos)
-├── tools/lamain-cli/       # the `lamain` CLI (bus, assemble, calibrate, studio, inspect)
-├── tools/legacy/           # deprecated tools kept for reference
+├── packages/lamain-cli/    # the `lamain` CLI (bus, assemble, calibrate, studio, inspect)
 ├── config/hand_model.yaml  # the design description (single source of kinematics)
 ├── hands/LM-0001/          # per-hand data: build manifest + calibration files
 ├── demos/                  # gestures and episodes

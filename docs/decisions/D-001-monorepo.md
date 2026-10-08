@@ -6,8 +6,8 @@
 ## Decision
 
 Keep hardware and software in a single repository (`LaMain`). `lamain-core`
-stays an isolated, publishable library; `packages/` and `tools/` stay at the
-repository root, following the uv workspace convention.
+stays an isolated, publishable library; the packages stay under `packages/` at
+the repository root, following the uv workspace convention.
 
 ## Alternatives
 
