@@ -1,5 +1,3 @@
-import pytest
-
 from lamain_core.bus import FakeBus
 from lamain_core.calibration import calibrate_hand
 from lamain_core.controller import HandController

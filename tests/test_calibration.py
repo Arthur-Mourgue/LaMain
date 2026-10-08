@@ -1,7 +1,5 @@
-import pytest
-
 from lamain_core.bus import FakeBus, FakeServo
-from lamain_core.calibration import CalibrationAbort, calibrate_hand
+from lamain_core.calibration import calibrate_hand
 from lamain_core.model import default_model_path, load_hand_model
 
 

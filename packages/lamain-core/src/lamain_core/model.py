@@ -204,9 +204,6 @@ def load_hand_model(path: str | Path) -> HandModel:
     )
 
 
-DEFAULT_MODEL_PATH = paths.hand_model_path()
-
-
 def default_model_path() -> Path:
     """Default path, overridable with the LAMAIN_MODEL environment variable."""
     return paths.hand_model_path()

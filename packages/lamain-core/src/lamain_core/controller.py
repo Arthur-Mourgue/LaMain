@@ -174,13 +174,6 @@ class HandController:
             applied[name] = t
         return applied
 
-    def zero_ticks(self) -> dict[str, int]:
-        """The reference (q=0) position in absolute ticks."""
-        return {
-            name: cal.reference_ticks
-            for name, cal in self.calibration.joints.items()
-        }
-
     def mount_ticks(self) -> dict[str, int]:
         """The initial/mount zero in absolute ticks.
 

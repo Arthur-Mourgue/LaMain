@@ -319,8 +319,6 @@ def _reference_for(
     mount: int,
     stop_low: int,
     stop_high: int,
-    low_near_end: bool,
-    high_near_end: bool,
     reference_mode: str = "middle",
 ) -> tuple[int, int]:
     """Return (reference_ticks, direction).
@@ -482,7 +480,7 @@ def calibrate_joint(
     high_at_end = stop_high >= SERVO_MAX_TICK - end_margin
 
     reference, direction = _reference_for(
-        joint, mount, stop_low, stop_high, low_at_end, high_at_end,
+        joint, mount, stop_low, stop_high,
         model.calibration.reference_mode,
     )
     lo, hi = _working_range(model, joint, reference, direction, stop_low, stop_high)
