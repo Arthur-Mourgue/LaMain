@@ -1,33 +1,8 @@
-# These fields are the variables that determine whether data transfers across
-# hand instances. Fill them in; unknown values stay as TODO.
+# Known values only. Fields return when they are actually measured.
 serial: LM-0001
 hardware_revision: revA
-assembled_by: TODO(arthur): assembler name
-assembly_date: TODO(arthur): YYYY-MM-DD
-
-printer:
-  model: TODO(arthur): printer model
-  nozzle: TODO(arthur): nozzle diameter
-
-print_profile: TODO(arthur): slicer profile reference
-
-materials:
-  petg:
-    brand: TODO(arthur): PETG brand
-    lot: TODO(arthur): PETG lot
-  tpu_95a:
-    brand: TODO(arthur): TPU 95A brand
-    lot: TODO(arthur): TPU 95A lot
-
-magnets:
-  supplier: TODO(arthur): magnet supplier
-  grade: TODO(arthur): magnet grade
-  size: TODO(arthur): magnet size
-
-servos:
+assembled_by: Arthur Mourgue
+cad_by: Julien Navet
+servo:
   model: SCS0009
-  batch: TODO(arthur): servo batch
-
-magnetometer_board: TODO(arthur): board model
-
-notes: TODO(arthur): anything that affects reproducibility
+  count: 5
