@@ -23,7 +23,6 @@ from __future__ import annotations
 import csv
 import statistics
 import time
-from collections import deque
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -215,7 +214,11 @@ def _approach(
     sid = joint.servo_id
     max_iters = (SERVO_MAX_TICK - SERVO_MIN_TICK) // max(1, step) + 200
     goal = bus.read_position(sid)
-    stable: deque[int] = deque(maxlen=cfg.stable_reads)
+    # Net-progress stall detection: robust to position jitter. We track the
+    # furthest position reached; if it stops improving for `stable_reads` reads
+    # while the command keeps leading, the joint is stalled.
+    best = goal
+    no_progress = 0
 
     for i in range(max_iters):
         if deadline is not None and time.monotonic() > deadline:
@@ -229,7 +232,16 @@ def _approach(
         goal = max(SERVO_MIN_TICK, min(SERVO_MAX_TICK, goal + direction * step))
         bus.write_goal(sid, goal)
         pos, load = _read(bus, model, sid, goal, log)
-        stable.append(pos)
+
+        if direction < 0:
+            improved = pos < best - cfg.stable_epsilon_ticks
+        else:
+            improved = pos > best + cfg.stable_epsilon_ticks
+        if improved:
+            best = pos
+            no_progress = 0
+        else:
+            no_progress += 1
 
         at_end = (
             direction < 0 and pos <= SERVO_MIN_TICK + cfg.stable_epsilon_ticks
@@ -240,11 +252,9 @@ def _approach(
             direction > 0 and goal >= SERVO_MAX_TICK
         )
         overrun = (goal - pos) * direction
-        stable_enough = (
-            len(stable) == cfg.stable_reads
-            and (max(stable) - min(stable)) <= cfg.stable_epsilon_ticks
+        stalled = no_progress >= cfg.stable_reads and (
+            overrun >= cfg.overrun_ticks or goal_limit
         )
-        stalled = stable_enough and (overrun >= cfg.overrun_ticks or goal_limit)
 
         if at_end:
             # servo internal end: still push at max torque so the load rises
@@ -252,9 +262,11 @@ def _approach(
             _confirm_stop(bus, joint, model, direction, pos, log, trace)
             return StopResult(pos, True, [pos])
         if stalled:
-            if _confirm_stop(bus, joint, model, direction, pos, log, trace):
+            # At the command boundary we cannot push further: accept the stop.
+            if goal_limit or _confirm_stop(bus, joint, model, direction, pos, log, trace):
                 return StopResult(pos, False, [pos])
-            stable.clear()  # friction: keep going
+            best = pos  # friction slipped: restart the progress window
+            no_progress = 0
 
     raise CalibrationAbort(
         f"servo {sid}: no stop found in {direction:+d} (travel exceeded)"

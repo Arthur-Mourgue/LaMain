@@ -19,7 +19,7 @@ calibration:
   step_ticks: 2              # slow-approach step (2 steps ~= 0.6 deg)
   fast_step_ticks: 8         # fast-approach step (locating)
   stable_reads: 10           # N stable reads before suspecting a stop
-  stable_epsilon_ticks: 1    # max variation allowed for "stable"
+  stable_epsilon_ticks: 3    # max variation allowed for "stable" (tolerate jitter)
   overrun_ticks: 20          # the command must lead the position by this much
   # Stop confirmation: approaching a stop, PUSH at max torque and dwell 2 s to
   # really feel it, then head to the other direction.
@@ -90,7 +90,7 @@ joints:
   # --- Thumb base rotation: a stop on each side (to confirm with CAD) ---
   thumb_rot:
     servo_id: 4
-    assembly_position: 844           # measured mid-travel (511 is out of range)
+    assembly_position: 300           # mount reflected at this position (not the 511 zero)
     type: two_stop
     reference: hard_stop_min         # most repeatable stop (to decide)
     reference_side: auto             # side with the greatest reach

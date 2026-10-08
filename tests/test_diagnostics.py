@@ -1,4 +1,4 @@
-from lamain_core.bus import FakeBus
+from lamain_core.bus import FakeBus, FakeServo
 from lamain_core.diagnostics import plot, sweep_joint, write_csv
 from lamain_core.model import default_model_path, load_hand_model
 
@@ -18,10 +18,11 @@ def test_sweep_reports_full_travel():
     assert d.voltage_min > 0
 
 
-def test_thumb_rot_flags_a_servo_end():
-    m, bus = _model_bus()
+def test_sweep_flags_a_servo_end():
+    m = load_hand_model(default_model_path())
+    # stop low inside the travel, stop high at the servo end
+    bus = FakeBus([FakeServo(4, stop_min=200, stop_max=1005, position=300, goal=300)])
     d = sweep_joint(bus, m, m.joint("thumb_rot"), step_ticks=8)
-    # fake thumb_rot stops are 682..1006: low inside, high at the servo end
     assert d.low_is_servo_end is False
     assert d.high_is_servo_end is True
     assert "internal end" in d.verdict
