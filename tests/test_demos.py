@@ -125,3 +125,24 @@ def test_episode_gesture_reference_resolves_by_name(tmp_path):
     _settle(ctrl)
     assert abs(ctrl.get_normalized()["index_flex"] - store.load("g").pose.q["index_flex"]) < 0.05
     assert "q" not in step.to_dict()                # gesture step stores no pose
+
+
+def test_play_reproduces_absolute_ticks_on_same_hand():
+    m, ctrl = _controller()
+    ctrl.set_normalized({name: 0.0 for name in ctrl.joint_names})
+    _settle(ctrl)
+    ticks = ctrl.get_joint_ticks()
+    ticks["index_flex"] += 150
+    pose = Pose(
+        q={name: 0.0 for name in ctrl.joint_names},
+        ticks=ticks,
+        hand=ctrl.calibration.hand_serial,
+    )
+    player = Player(
+        ctrl,
+        PlayOptions(loops=1, speed=2.0, start_at_zero=False, approach=True),
+    )
+    player.play([pose])
+    _settle(ctrl)
+    # same absolute tick reached -> independent of the q/calibration mapping
+    assert ctrl.get_joint_ticks()["index_flex"] == ticks["index_flex"]

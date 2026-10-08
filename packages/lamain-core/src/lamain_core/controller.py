@@ -156,6 +156,42 @@ class HandController:
             applied[name] = self._ticks_to_rad(name, ticks)
         return applied
 
+    # absolute tick API (calibration-independent playback on the same hand) --- #
+    def get_joint_ticks(self) -> dict[str, int]:
+        return {
+            j.name: self.bus.read_position(j.servo_id)
+            for j in self.model.joints.values()
+        }
+
+    def set_joint_ticks(self, values: dict[str, int]) -> dict[str, int]:
+        applied: dict[str, int] = {}
+        for name, ticks in values.items():
+            j = self.model.joint(name)
+            t = self.safety.clamp_ticks(name, int(ticks))
+            t = self.safety.limit_step(name, t, self._last_cmd.get(name))
+            self.bus.write_goal(j.servo_id, t)
+            self._last_cmd[name] = t
+            applied[name] = t
+        return applied
+
+    def zero_ticks(self) -> dict[str, int]:
+        """The reference (q=0) position in absolute ticks."""
+        return {
+            name: cal.reference_ticks
+            for name, cal in self.calibration.joints.items()
+        }
+
+    def mount_ticks(self) -> dict[str, int]:
+        """The initial/mount zero in absolute ticks.
+
+        Single source of truth: `assembly_position` from `hand_model.yaml`, so
+        calibrate / inspect / assemble / studio all reset to the same values.
+        """
+        return {
+            name: self.model.joint(name).assembly_position
+            for name in self.calibration.joints
+        }
+
     # normalized variants [-1, 1] (on the MEASURED range, never the nominal) #
     def _spans_ticks(self, name: str) -> tuple[int, int]:
         """(positive, negative) travel in ticks from the reference, i.e. how

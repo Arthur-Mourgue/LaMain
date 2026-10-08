@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from . import units
 from .controller import HandController
 
 
@@ -26,13 +27,25 @@ from .controller import HandController
 class Pose:
     q: dict[str, float]              # normalized [-1, 1] (portable across hands)
     rad: dict[str, float] = field(default_factory=dict)  # direct joint radians
+    ticks: dict[str, int] = field(default_factory=dict)  # absolute servo ticks (same hand)
+    hand: str = ""                   # hand serial the pose was recorded on
 
     def to_dict(self) -> dict:
-        return {"q": dict(self.q), "rad": dict(self.rad)}
+        return {
+            "q": dict(self.q),
+            "rad": dict(self.rad),
+            "ticks": dict(self.ticks),
+            "hand": self.hand,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Pose":
-        return cls(q=dict(data["q"]), rad=dict(data.get("rad", {})))
+        return cls(
+            q=dict(data["q"]),
+            rad=dict(data.get("rad", {})),
+            ticks={k: int(v) for k, v in data.get("ticks", {}).items()},
+            hand=data.get("hand", ""),
+        )
 
 
 @dataclass
@@ -287,18 +300,23 @@ class Player:
             )
         return max(self.options.min_step_s, max_deg / speed_dps)
 
-    def _wait_settle(self, stop_flag) -> None:
+    def _wait_settle(self, stop_flag, ticks: bool = False) -> None:
         """Wait until the hand actually reaches the commanded pose."""
         if self.controller.bus.simulated:
             return
         deadline = time.monotonic() + self.options.settle_timeout_s
         last = None
         stable = 0
+        eps = 2 if ticks else 0.005
         while time.monotonic() < deadline:
             if stop_flag is not None and stop_flag():
                 raise PlayerStopped("stopped")
-            pos = self.controller.get_normalized()
-            if last is not None and all(abs(pos[n] - last[n]) < 0.005 for n in pos):
+            pos = (
+                self.controller.get_joint_ticks()
+                if ticks
+                else self.controller.get_normalized()
+            )
+            if last is not None and all(abs(pos[n] - last[n]) < eps for n in pos):
                 stable += 1
                 if stable >= 3:
                     return
@@ -316,6 +334,35 @@ class Player:
             self._drive(lerp(start, target, smoothstep(k / (n - 1))), k)
             self._sleep(1.0 / self.options.fps)
         self._wait_settle(stop_flag)
+
+    # --- absolute-tick playback (same hand, calibration-independent) -------- #
+    def _drive_ticks(self, ticks: dict[str, int], frame: int) -> None:
+        self.controller.set_joint_ticks(ticks)
+        if self.options.monitor and frame % max(1, self.options.fps // 5) == 0:
+            self._health()
+
+    def _ticks_duration(self, a: dict[str, int], b: dict[str, int]) -> float:
+        speed_dps = min(
+            self.controller.model.joint(n).max_speed_dps for n in a
+        ) or 120.0
+        max_deg = max(abs(b[n] - a[n]) for n in a) * units.DEG_PER_TICK
+        return max(self.options.min_step_s, max_deg / speed_dps)
+
+    def _interpolate_ticks(self, target: dict[str, int], duration: float, stop_flag) -> None:
+        start = self.controller.get_joint_ticks()
+        n = max(2, int(duration * self.options.fps))
+        for k in range(n):
+            if stop_flag is not None and stop_flag():
+                raise PlayerStopped("stopped")
+            self._drive_ticks(lerp(start, target, smoothstep(k / (n - 1))), k)
+            self._sleep(1.0 / self.options.fps)
+        self._wait_settle(stop_flag, ticks=True)
+
+    def _use_ticks(self, poses: list[Pose]) -> bool:
+        current = self.controller.calibration.hand_serial
+        return all(p.ticks for p in poses) and all(
+            p.hand == "" or p.hand == current for p in poses
+        )
 
     def play(self, steps, stop_flag: Callable[[], bool] | None = None, gestures=None) -> None:
         poses: list[Pose] = []
@@ -336,28 +383,56 @@ class Player:
         if self.options.max_step_deg is not None:
             self.controller.set_max_step_deg(self.options.max_step_deg)
         try:
-            # every play starts from the zero pose (all joints at q = 0)
-            if self.options.start_at_zero:
-                zero = {name: 0.0 for name in poses[0].q}
-                current = self.controller.get_normalized()
-                self._interpolate_to(zero, self._segment_duration(current, zero), stop_flag)
-            if self.options.approach:
-                current = self.controller.get_normalized()
-                self._interpolate_to(
-                    poses[0].q, self._segment_duration(current, poses[0].q), stop_flag
-                )
-
-            loops = 0
-            while True:
-                for i in range(len(poses) - 1):
-                    if holds[i] is not None:
-                        duration = holds[i]
-                    else:
-                        duration = self._segment_duration(poses[i].q, poses[i + 1].q)
-                    self._interpolate_to(poses[i + 1].q, duration, stop_flag)
-                loops += 1
-                if self.options.loops and loops >= self.options.loops:
-                    break
+            if self._use_ticks(poses):
+                self._play_ticks(poses, holds, stop_flag)
+            else:
+                self._play_q(poses, holds, stop_flag)
         finally:
             if self.options.max_step_deg is not None:
                 self.controller.set_max_step_deg(None)
+
+    def _play_q(self, poses: list[Pose], holds, stop_flag) -> None:
+        if self.options.start_at_zero:
+            zero = {name: 0.0 for name in poses[0].q}
+            current = self.controller.get_normalized()
+            self._interpolate_to(zero, self._segment_duration(current, zero), stop_flag)
+        if self.options.approach:
+            current = self.controller.get_normalized()
+            self._interpolate_to(
+                poses[0].q, self._segment_duration(current, poses[0].q), stop_flag
+            )
+        loops = 0
+        while True:
+            for i in range(len(poses) - 1):
+                duration = (
+                    holds[i]
+                    if holds[i] is not None
+                    else self._segment_duration(poses[i].q, poses[i + 1].q)
+                )
+                self._interpolate_to(poses[i + 1].q, duration, stop_flag)
+            loops += 1
+            if self.options.loops and loops >= self.options.loops:
+                break
+
+    def _play_ticks(self, poses: list[Pose], holds, stop_flag) -> None:
+        if self.options.start_at_zero:
+            zero = self.controller.mount_ticks()
+            current = self.controller.get_joint_ticks()
+            self._interpolate_ticks(zero, self._ticks_duration(current, zero), stop_flag)
+        if self.options.approach:
+            current = self.controller.get_joint_ticks()
+            self._interpolate_ticks(
+                poses[0].ticks, self._ticks_duration(current, poses[0].ticks), stop_flag
+            )
+        loops = 0
+        while True:
+            for i in range(len(poses) - 1):
+                duration = (
+                    holds[i]
+                    if holds[i] is not None
+                    else self._ticks_duration(poses[i].ticks, poses[i + 1].ticks)
+                )
+                self._interpolate_ticks(poses[i + 1].ticks, duration, stop_flag)
+            loops += 1
+            if self.options.loops and loops >= self.options.loops:
+                break

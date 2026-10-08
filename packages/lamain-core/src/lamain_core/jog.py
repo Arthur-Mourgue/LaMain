@@ -59,14 +59,20 @@ class JogController:
         return True
 
     def capture(self) -> Pose:
-        """Read the real joint positions and return a normalized + rad pose."""
+        """Read the real joint positions and return a normalized + rad + ticks pose."""
         rad = self.controller.get_joint_positions()
         q = {}
         for name, value in rad.items():
             span = self._span_deg(name, 1 if value >= 0 else -1)
             q[name] = value / math.radians(span)
         self.q = dict(q)
-        return Pose(q=q, rad=rad)
+        ticks = {
+            j.name: self.controller.bus.read_position(j.servo_id)
+            for j in self.controller.model.joints.values()
+        }
+        return Pose(
+            q=q, rad=rad, ticks=ticks, hand=self.controller.calibration.hand_serial
+        )
 
     def goto(self, pose: Pose) -> None:
         """Move the hand to a stored pose (e.g. a gesture) and resync state."""
