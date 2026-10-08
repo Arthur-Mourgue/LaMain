@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Single place that resolves every on-disk path used by the project.
 
-Layout:
-    <repo>/config/hand_model.yaml
+The hand model ships inside this package (loaded with `importlib.resources`).
+The rest is per-repository data:
+
     <repo>/hands/<serial>/calibration/*.json
     <repo>/demos/gestures/*.json
     <repo>/demos/episodes/*.json
@@ -11,6 +12,7 @@ Layout:
 from __future__ import annotations
 
 import os
+from importlib.resources import files
 from pathlib import Path
 
 DEFAULT_SERIAL = "LM-0001"
@@ -20,13 +22,11 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def config_dir() -> Path:
-    return repo_root() / "config"
-
-
 def hand_model_path() -> Path:
     env = os.environ.get("LAMAIN_MODEL")
-    return Path(env) if env else config_dir() / "hand_model.yaml"
+    if env:
+        return Path(env)
+    return Path(str(files("lamain_core").joinpath("hand_model.yaml")))
 
 
 def hands_dir() -> Path:

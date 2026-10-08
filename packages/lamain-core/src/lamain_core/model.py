@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Read `config/hand_model.yaml`: the design description.
+"""Read `hand_model.yaml`: the design description, shipped with this package.
 
 Every parameter (torques, steps, thresholds, margins, order) comes from this
 file. No "magic" value should appear anywhere else in the code.

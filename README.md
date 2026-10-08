@@ -15,7 +15,8 @@ SO-101 arm, integrable with LeRobot.
 
 What already works today (from the code):
 
-- **Joints** (five Feetech SCS0009 servos, from `config/hand_model.yaml`):
+- **Joints** (five Feetech SCS0009 servos, from the `hand_model.yaml` bundled in
+  `lamain-core`):
   `index_flex`, `middle_flex`, `index_middle_abd` (index + middle abduction),
   `thumb_rot`, `thumb_flex`.
 - **Automatic calibration** of every joint at reduced torque, with a stop
@@ -41,7 +42,6 @@ uv run pytest           # tests on FakeBus, no hardware
 lamain/
 ├── packages/lamain-core/   # reusable library (bus, calibration, safety, controller, demos)
 ├── packages/lamain-cli/    # the `lamain` CLI (bus, assemble, calibrate, studio, inspect)
-├── config/hand_model.yaml  # the design description (single source of kinematics)
 ├── hands/LM-0001/          # per-hand data: build manifest + calibration files
 ├── demos/                  # gestures and episodes
 ├── benchmark/              # benchmark tasks and objects
