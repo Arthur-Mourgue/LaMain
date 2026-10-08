@@ -71,4 +71,4 @@ Standardize what the sensor sees; diversify everything else.
 - Arthur Mourgue
 - Julien Navet (CAD)
 
-Inspired by Pollen Robotics' AmazingHand (reference kept in `vendor/`).
+Inspired by Pollen Robotics' [AmazingHand](https://github.com/pollen-robotics/AmazingHand).
