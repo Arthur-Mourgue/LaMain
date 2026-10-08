@@ -6,8 +6,6 @@ The smallest three-finger end-effector with tactile feedback that replaces the S
   <img src="docs/lamainv0.gif" alt="LaMain prototype" width="400">
 </p>
 
-<!-- TODO(arthur): GIF -->
-
 ## Status
 
 Early prototype. The long-term goal is a low-cost, low-weight hand for the
@@ -44,19 +42,19 @@ lamain/
 ├── packages/lamain-cli/    # the `lamain` CLI (bus, assemble, calibrate, studio, inspect)
 ├── hands/LM-0001/          # per-hand data: build manifest + calibration files
 ├── demos/                  # gestures and episodes
-├── benchmark/              # benchmark tasks and objects
-├── results/                # planned bench tests (no results yet)
-├── hardware/               # BOM and CAD
-├── urdf/                   # generated URDF (never edited by hand)
-├── docs/                   # integration notes and decision records
+├── docs/                   # roadmap and decision records
 └── tests/                  # FakeBus tests, run in CI
 ```
 
-## Roadmap (provisional)
+## Roadmap
 
-- **v0.1** tactile fingertip pad (also fits the stock SO-101 gripper) + single-finger tracer bullet.
-- **v0.3** three-finger hand.
-- **v1.0** full hand + benchmark + cross-instance transfer result.
+Next milestones and the planned benchmark are in [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Hardware
+
+Bill of materials:
+[LaMain BOM](https://docs.google.com/spreadsheets/d/1QRkrFNEr4OLIYoRjOxhvR7IqRy3qPOLTq45OjTfyoFY/edit?usp=sharing).
+CAD rev A not published yet.
 
 ## Design principle
 
