@@ -55,6 +55,7 @@ class Studio:
 
     # ------------------------------------------------------------------ #
     def run(self) -> None:
+        self._home()  # always start from the initial zero
         try:
             while True:
                 self._menu()
@@ -138,15 +139,19 @@ class Studio:
         player.play([pose])
 
     def _home(self) -> None:
-        """Bring every joint to the zero pose (q = 0) before any action."""
-        self.out("  homing to zero...")
+        """Bring every joint to the initial mount zero before any action."""
+        self.out("  homing to the initial zero...")
         self.controller.enable_torque("default")
-        zero = {name: 0.0 for name in self.controller.joint_names}
+        pose = Pose(
+            q={name: 0.0 for name in self.controller.joint_names},
+            ticks=self.controller.mount_ticks(),
+            hand=self.calibration.hand_serial,
+        )
         player = Player(
             self.controller,
             PlayOptions(loops=1, approach=True, start_at_zero=False, max_step_deg=90.0),
         )
-        player.play([Pose(q=zero)])
+        player.play([pose])
 
     def _settle(self, timeout: float = 1.5) -> None:
         """Wait until the hand stops moving (so capture = what you see)."""

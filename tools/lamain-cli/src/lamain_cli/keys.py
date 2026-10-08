@@ -19,12 +19,15 @@ class KeySource(Protocol):
 
 class KeyReader:
     """Single-key reader in cbreak mode; `prompt_line` restores cooked mode
-    temporarily so the user can type a name."""
+    temporarily so the user can type a name. Falls back to line-based input when
+    stdin is not a TTY (pipes, scripts)."""
 
     def __init__(self, stream=None):
         self._stream = stream or sys.stdin
         self._fd = self._stream.fileno()
         self._saved = None
+        self._interactive = False
+        self._opened = False
 
     def __enter__(self) -> "KeyReader":
         self.open()
@@ -34,9 +37,16 @@ class KeyReader:
         self.close()
 
     def open(self) -> None:
-        if self._saved is None:
+        if self._opened:
+            return
+        self._opened = True
+        try:
             self._saved = termios.tcgetattr(self._fd)
             tty.setcbreak(self._fd)
+            self._interactive = True
+        except termios.error:
+            self._saved = None
+            self._interactive = False
 
     def close(self) -> None:
         if self._saved is not None:
@@ -46,6 +56,11 @@ class KeyReader:
     def read_key(self, timeout: float | None = None) -> str | None:
         if self._saved is None:
             self.open()
+        if not self._interactive:
+            line = self._stream.readline()
+            if not line:
+                return None
+            return line[0]
         ready, _, _ = select.select([self._stream], [], [], timeout)
         if not ready:
             return None
@@ -53,6 +68,11 @@ class KeyReader:
         return ch or None
 
     def prompt_line(self, prompt: str) -> str:
+        if not self._interactive:
+            try:
+                return input(prompt)
+            except EOFError:
+                return ""
         if self._saved is not None:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._saved)
         try:

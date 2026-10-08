@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 
 from lamain_core import units
-from lamain_core.bus import FakeBus, RustypotBus, _scalar
+from lamain_core.bus import SERVO_MAX_TICK, SERVO_MIN_TICK, FakeBus, RustypotBus, _scalar
 from lamain_core.calibration import CalibrationAbort, calibrate_hand
 from lamain_core.controller import HandController, load_calibration
 from lamain_core.demos import (
@@ -42,6 +42,7 @@ from lamain_core.diagnostics import sweep_joint
 from lamain_core.diagnostics import write_csv as diag_write_csv
 from lamain_core.model import default_model_path, load_hand_model
 from lamain_core import paths
+from lamain_core.jog import DEFAULT_KEYMAP
 from lamain_cli.keys import KeyReader
 from lamain_cli.studio import Studio
 
@@ -86,6 +87,27 @@ def _new_run_dir(kind: str, label: str | None = None, base=None) -> Path:
         n += 1
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def _home_all(bus, model, timeout: float = 3.0) -> None:
+    """Bring every joint back to its initial mount zero before any operation."""
+    for j in model.joints.values():
+        bus.set_torque_limit_pct(j.servo_id, model.safety.default_torque_pct)
+        bus.set_goal_speed(j.servo_id, model.safety.move_speed)
+        bus.set_torque_enable(j.servo_id, True)
+        bus.write_goal(j.servo_id, j.assembly_position)
+    elapsed = 0.0
+    while elapsed < timeout:
+        bus.step()
+        pos = {j.servo_id: bus.read_position(j.servo_id) for j in model.joints.values()}
+        if all(
+            abs(pos[j.servo_id] - j.assembly_position) <= 2
+            for j in model.joints.values()
+        ):
+            return
+        if not bus.simulated:
+            time.sleep(0.1)
+        elapsed += 0.1
 
 
 # --------------------------------------------------------------------------- #
@@ -586,112 +608,78 @@ def _write_inspect_summary(run_dir, diags, serial: str) -> None:
     (run_dir / "summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _manual_jog(args, model, bus, joint) -> None:
-    """Keyboard jog of one joint to tell a mechanical block from friction."""
-    sid = joint.servo_id
-    print(f"\n=== manual jog: {joint.name} (servo {sid}) ===")
-    # keep the other joints out of the way
-    for j in model.joints.values():
-        if j.servo_id == sid:
-            continue
-        bus.set_torque_limit_pct(j.servo_id, model.calibration.torque_pct)
-        bus.set_torque_enable(j.servo_id, True)
-        bus.write_goal(j.servo_id, j.assembly_position)
-    for _ in range(50):
-        bus.step()
-
+def _inspect_jog(args, model, bus) -> int:
+    """Manual jog to feel whether a blockage is mechanical. Reuses the studio key
+    mapping (digits 0-9) and the same KeyReader."""
     torque = args.torque if args.torque is not None else model.calibration.probe_torque_pct
-    bus.set_torque_limit_pct(sid, torque)
-    bus.set_goal_speed(sid, model.safety.move_speed)
-    bus.set_torque_enable(sid, True)
-    goal = bus.read_position(sid)
-    step = args.step
+    step = args.jog_step
+    for j in model.joints.values():
+        bus.set_torque_limit_pct(j.servo_id, torque)
+        bus.set_goal_speed(j.servo_id, model.safety.move_speed)
+        bus.set_torque_enable(j.servo_id, True)
 
-    print(
-        "keys: a=-step d=+step  f/s=step/2 *2  p=push 100%  h=mount  "
-        "0=0 9=1023  l=read  q=quit"
-    )
-
-    def settle(frames=8):
-        for _ in range(frames):
-            bus.step()
-            if not bus.simulated:
-                time.sleep(0.03)
-
-    keys_reader = KeyReader()
+    keys = KeyReader()
+    print(f"Jog mode (torque {torque:.0f}%, step {step} ticks). Ctrl-C or 'q' to quit.")
+    print("  0/1 index   2/3 middle   4/5 abduction   6/7 thumb base   8/9 thumb flex")
+    print("  'l' = read all positions/loads, 'q' = quit.")
     try:
         while True:
-            pos = bus.read_position(sid)
-            load = bus.read_load(sid)
-            temp = bus.read_temperature(sid)
-            print(
-                f"  goal={goal:4} pos={pos:4} load={load:5} T={temp} C  "
-                f"step={step} torque={torque:.0f}%"
-            )
-            key = keys_reader.read_key()
+            key = keys.read_key()
             if key is None:
                 continue
             if key == "q":
                 break
-            elif key == "a":
-                goal = max(0, goal - step)
-            elif key == "d":
-                goal = min(1023, goal + step)
-            elif key == "f":
-                step = max(1, step // 2)
+            if key == "l":
+                for j in model.joints.values():
+                    print(
+                        f"  {j.name:16} pos={bus.read_position(j.servo_id):4} "
+                        f"load={bus.read_load(j.servo_id):5}"
+                    )
                 continue
-            elif key == "s":
-                step = min(128, step * 2)
-                continue
-            elif key == "h":
-                goal = joint.assembly_position
-            elif key == "0":
-                goal = 0
-            elif key == "9":
-                goal = 1023
-            elif key == "l":
-                continue
-            elif key == "p":
-                # push briefly at max torque to break stiction and see if it moves
-                push = 1023 if goal >= pos else 0
-                bus.set_torque_limit_pct(sid, 100.0)
-                bus.write_goal(sid, push)
-                settle(20)
-                bus.set_torque_limit_pct(sid, torque)
-                goal = bus.read_position(sid)
-                continue
+            if key in DEFAULT_KEYMAP:
+                name, sign = DEFAULT_KEYMAP[key]
+                j = model.joint(name)
+                start = bus.read_position(j.servo_id)
+                target = max(SERVO_MIN_TICK, min(SERVO_MAX_TICK, start + sign * step))
+                bus.write_goal(j.servo_id, target)
+                bus.step()
+                if not bus.simulated:
+                    time.sleep(0.15)
+                now = bus.read_position(j.servo_id)
+                load = bus.read_load(j.servo_id)
+                flag = "" if abs(now - target) <= 3 else "  <- blocked?"
+                print(
+                    f"  {name:16} {start:4} -> goal {target:4} "
+                    f"(now {now:4}, load {load:5}){flag}"
+                )
             else:
-                continue
-            bus.write_goal(sid, goal)
-            settle()
+                print(f"(unused key {key!r})")
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
     finally:
-        keys_reader.close()
-    bus.set_torque_enable(sid, False)
-    print("Torque off.")
+        keys.close()
+        for j in model.joints.values():
+            try:
+                bus.set_torque_enable(j.servo_id, False)
+            except Exception:
+                pass
+    return 0
 
 
 def cmd_inspect(args) -> int:
     model = _model(args)
     bus = _bus(args, model)
+    print("Resetting to the initial zero...")
+    _home_all(bus, model)
+    if args.jog:
+        try:
+            return _inspect_jog(args, model, bus)
+        finally:
+            bus.close()
     names = [args.joint] if args.joint else list(model.joints)
     serial = args.serial or DEFAULT_SERIAL
     run_dir = _new_run_dir("inspect", serial, args.logs_dir)
     try:
-        # park every joint at its mount zero first (keeps the others out of the way)
-        for j in model.joints.values():
-            bus.set_torque_limit_pct(j.servo_id, model.calibration.torque_pct)
-            bus.set_torque_enable(j.servo_id, True)
-            bus.write_goal(j.servo_id, j.assembly_position)
-        for _ in range(50):
-            bus.step()
-
-        if getattr(args, "manual", False):
-            if len(names) != 1:
-                print("--manual needs exactly one joint (e.g. `lamain inspect index_flex --manual`).")
-                return 2
-            _manual_jog(args, model, bus, model.joint(names[0]))
-            return 0
-
         diags = []
         for name in names:
             joint = model.joint(name)
@@ -834,8 +822,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     i = sub.add_parser("inspect", help="diagnostic sweep of a joint")
     i.add_argument("joint", nargs="?", default=None, help="joint name (default: all)")
-    i.add_argument("-m", "--manual", action="store_true",
-                   help="keyboard jog one joint to tell a block from friction")
     i.add_argument("--step", type=int, default=4, help="sweep step in ticks")
     i.add_argument("--torque", type=float, default=None,
                    help="torque %% (default: probe torque)")
@@ -844,6 +830,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="ticks from 0/1023 counted as the servo end")
     i.add_argument("--plot", action=argparse.BooleanOptionalAction, default=True,
                    help="write a PNG plot (default: on; use --no-plot to skip)")
+    i.add_argument("--jog", action="store_true",
+                   help="manual keyboard jog instead of the sweep (feel the blockage)")
+    i.add_argument("--jog-step", type=int, default=8,
+                   help="ticks per jog key press (with --jog)")
     i.add_argument("--serial", default=None)
     i.add_argument("--logs-dir", default=None)
     i.set_defaults(func=cmd_inspect)
