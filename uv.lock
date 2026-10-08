@@ -288,17 +288,13 @@ name = "lamain-cli"
 version = "0.1.0"
 source = { editable = "packages/lamain-cli" }
 dependencies = [
-    { name = "lamain-core" },
-    { name = "matplotlib" },
-    { name = "pyyaml" },
+    { name = "lamain-core", extra = ["plots"] },
     { name = "rustypot" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "lamain-core", editable = "packages/lamain-core" },
-    { name = "matplotlib", specifier = ">=3.8" },
-    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "lamain-core", extras = ["plots"], editable = "packages/lamain-core" },
     { name = "rustypot", specifier = ">=1.10.0" },
 ]
 
@@ -311,11 +307,18 @@ dependencies = [
     { name = "rustypot" },
 ]
 
+[package.optional-dependencies]
+plots = [
+    { name = "matplotlib" },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "matplotlib", marker = "extra == 'plots'", specifier = ">=3.8" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rustypot", specifier = ">=1.10.0" },
 ]
+provides-extras = ["plots"]
 
 [[package]]
 name = "lamain-workspace"
